@@ -1,0 +1,4 @@
+# Upstream certificate issuance dependencies.
+supabase>=2.4,<3
+reportlab>=4.0,<5
+python-dotenv>=1.0,<2

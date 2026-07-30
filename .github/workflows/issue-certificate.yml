@@ -1,0 +1,72 @@
+name: Issue certificate
+
+# Manually-triggered issuance. An admin fills in the participant details and
+# runs the workflow; it issues one certificate. Requires two repository
+# secrets: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: "Participant full name"
+        required: true
+        type: string
+      email:
+        description: "Participant email"
+        required: true
+        type: string
+      company:
+        description: "Company (optional)"
+        required: false
+        type: string
+      course:
+        description: "Course"
+        required: true
+        type: choice
+        options:
+          - GHG
+          - Nature
+          - GHG_Nature_Bundle
+      completed_at:
+        description: "Completion date YYYY-MM-DD (blank = today)"
+        required: false
+        type: string
+
+concurrency:
+  # Serialize issuance runs so two certificates are never minted in parallel.
+  group: issue-certificate
+  cancel-in-progress: false
+
+jobs:
+  issue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Issue certificate
+        # Inputs are passed through env (never interpolated into the shell) to
+        # avoid command injection from the free-text fields.
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          IN_NAME: ${{ github.event.inputs.name }}
+          IN_EMAIL: ${{ github.event.inputs.email }}
+          IN_COMPANY: ${{ github.event.inputs.company }}
+          IN_COURSE: ${{ github.event.inputs.course }}
+          IN_COMPLETED_AT: ${{ github.event.inputs.completed_at }}
+        run: |
+          python issue_certificate.py \
+            --name "$IN_NAME" \
+            --email "$IN_EMAIL" \
+            --company "$IN_COMPANY" \
+            --course "$IN_COURSE" \
+            --completed-at "$IN_COMPLETED_AT" \
+            --json
