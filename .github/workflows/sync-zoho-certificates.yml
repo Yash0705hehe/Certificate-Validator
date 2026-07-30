@@ -1,0 +1,56 @@
+name: Sync Zoho completions
+
+# Runs daily: pulls completed learners from Zoho Learn and issues + emails
+# their certificates automatically. Idempotent — already-issued learners are
+# skipped. Can also be run on demand (with an optional dry-run).
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (list who would be issued; no writes/emails)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: sync-zoho-certificates
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Chromium is needed to render certificate PDFs.
+          python -m playwright install --with-deps chromium
+
+      - name: Sync Zoho completions
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          ZOHO_ACCOUNTS_DOMAIN: ${{ secrets.ZOHO_ACCOUNTS_DOMAIN }}
+          ZOHO_API_DOMAIN: ${{ secrets.ZOHO_API_DOMAIN }}
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          ZOHO_PORTAL_ID: ${{ secrets.ZOHO_PORTAL_ID }}
+          ZOHO_COURSE_MAP: ${{ secrets.ZOHO_COURSE_MAP }}
+          ZOHO_REPORT_PATH: ${{ secrets.ZOHO_REPORT_PATH }}
+          IN_DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          FLAG=""
+          if [ "$IN_DRY_RUN" = "true" ]; then FLAG="--dry-run"; fi
+          python sync_zoho.py $FLAG

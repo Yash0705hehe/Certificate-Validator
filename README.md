@@ -129,6 +129,21 @@ Extra secrets/env required for email:
   (e.g. `AA Impact Academy <certificates@aaimpactinc.com>`). Unverified senders
   are rejected by Resend.
 
+## Automated Zoho Learn sync
+
+`.github/workflows/sync-zoho-certificates.yml` runs **daily**: it pulls
+completed learners from Zoho Learn and automatically issues **and** emails their
+certificates, with no manual step. It is idempotent — a learner who already
+holds an active certificate for a course is skipped, so re-runs never duplicate
+or re-email.
+
+- Logic: `sync_zoho.py` + `certissuer/zoho.py` (Zoho Learn API client).
+- Setup (OAuth app, refresh token, portal/course ids, secrets):
+  **[docs/ZOHO_SETUP.md](docs/ZOHO_SETUP.md)**.
+- Validate safely first: run the workflow with **Dry run** (or
+  `python sync_zoho.py --dry-run`) to list who *would* be issued; use
+  `--dump` to inspect the raw Zoho report.
+
 ### Skills
 
 Two Claude skills wrap the above:
