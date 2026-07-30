@@ -1,5 +1,4 @@
 # Upstream certificate issuance dependencies.
 supabase>=2.4,<3
 playwright>=1.40           # renders the HTML certificate template to PDF
-segno>=1.6                 # QR code (pure-python, no native deps)
 python-dotenv>=1.0,<2

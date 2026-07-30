@@ -29,21 +29,6 @@ STORAGE_BUCKET = "certificates"
 DISPLAY_TZ = "America/New_York"
 
 
-# Base URL of the deployed Supabase Edge Functions (verification endpoints).
-SUPABASE_FUNCTIONS_BASE = (
-    "https://ukhzxqxugzqcfqcwnmvu.supabase.co/functions/v1"
-)
-
-# Template used to build the QR code target printed on the certificate. It is
-# scanned to verify the credential. Overridable via the CERT_VERIFY_URL env var
-# (point it at your public validator page if you have one). Available
-# placeholders: {certificate_id} and {date} (the completion calendar day).
-DEFAULT_VERIFY_URL_TEMPLATE = (
-    SUPABASE_FUNCTIONS_BASE
-    + "/validate-certificate?certificate_id={certificate_id}&date={date}"
-)
-
-
 @dataclass(frozen=True)
 class CourseMeta:
     """Static metadata attached to an issued certificate for a course.

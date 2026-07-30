@@ -70,15 +70,6 @@ def _in_display_tz(dt: datetime):
         return dt
 
 
-def calendar_day(dt: datetime) -> str:
-    """``YYYY-MM-DD`` completion day in the display timezone.
-
-    This is the value the verifier matches on and that is embedded in the QR
-    code, so the printed date and the QR agree.
-    """
-    return _in_display_tz(dt).strftime("%Y-%m-%d")
-
-
 def display_date(dt: datetime) -> str:
     """Human-readable completion date, e.g. ``10 July 2026``."""
     local = _in_display_tz(dt)

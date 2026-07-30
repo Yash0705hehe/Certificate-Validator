@@ -40,10 +40,9 @@ For each issuance:
 `certissuer/templates/certificate.html` is the exact AA Impact "Certificate of
 Achievement" design (1120×784) with the web fonts inlined as `data:` URIs, so
 rendering is fully offline. Per certificate the template's tokens are filled:
-recipient name, certificate ID, date, and a freshly generated **QR code** that
-points at the verification endpoint (overridable via `CERT_VERIFY_URL`).
-Course-specific copy (banner, sidebar, seal code, blurb) comes from
-`certissuer/config.py`. Rendering uses **Chromium via Playwright**.
+recipient name, certificate ID, and date. The QR code is a **static image**
+baked into the design. Course-specific copy (banner, sidebar, seal code, blurb)
+comes from `certissuer/config.py`. Rendering uses **Chromium via Playwright**.
 
 > **Date shown:** the date printed in the certificate's `ISSUE DATE` slot is the
 > **completion date** — the value the public validator checks — so a holder can
@@ -138,7 +137,6 @@ certissuer/
   hashing.py                    integrity hash (contract with the verifier)
   ids.py                        certificate ID generation
   timeutil.py                   completed_at normalization + date formatting
-  qr.py                         QR code (verification URL -> SVG data URI)
   pdf.py                        HTML template substitution + Chromium render
   client.py                     Supabase service-role client factory
   issuer.py                     end-to-end issuance orchestration

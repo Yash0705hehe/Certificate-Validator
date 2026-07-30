@@ -32,7 +32,7 @@ def test_values_present():
     assert "AAI-GHG-CA-ab7d481671fd2198" in html
     assert "15 July 2026" in html  # display date in America/New_York
     assert "GHG ACCOUNTING &amp; REPORTING TRAINING" in html
-    assert "data:image/svg+xml;base64," in html  # QR embedded
+    assert "data:image/png;base64," in html  # static QR image baked in
 
 
 def test_recipient_name_is_escaped():

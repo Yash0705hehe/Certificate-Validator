@@ -18,8 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from .config import CourseMeta
-from .qr import qr_data_uri, verification_url
-from .timeutil import calendar_day, display_date
+from .timeutil import display_date
 
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "certificate.html"
 
@@ -55,14 +54,16 @@ def build_certificate_html(
     completed_at: datetime,
     course: CourseMeta,
 ) -> str:
-    """Substitute all tokens and return the final, self-contained HTML."""
-    day = calendar_day(completed_at)
+    """Substitute all tokens and return the final, self-contained HTML.
+
+    The QR code in the design is a static image baked into the template; it is
+    not generated per certificate.
+    """
     tokens = {
         # User / record values are HTML-escaped.
         "{{RECIPIENT_NAME}}": html_lib.escape(recipient_name),
         "{{CERTIFICATE_ID}}": html_lib.escape(certificate_id),
         "{{ISSUE_DATE}}": html_lib.escape(display_date(completed_at)),
-        "{{QR_DATA_URI}}": qr_data_uri(verification_url(certificate_id, day)),
         # Course copy is trusted config and may contain intended HTML (<br>, &amp;).
         "{{COURSE_SIDEBAR}}": course.sidebar,
         "{{LEVEL}}": course.level,
