@@ -129,20 +129,25 @@ Extra secrets/env required for email:
   (e.g. `AA Impact Academy <certificates@aaimpactinc.com>`). Unverified senders
   are rejected by Resend.
 
-## Automated Zoho Learn sync
+## Auto-issue on Zoho Learn completion
 
-`.github/workflows/sync-zoho-certificates.yml` runs **daily**: it pulls
-completed learners from Zoho Learn and automatically issues **and** emails their
-certificates, with no manual step. It is idempotent — a learner who already
-holds an active certificate for a course is skipped, so re-runs never duplicate
-or re-email.
+Zoho Learn has no public "who completed" API or Zoho Flow trigger, so completion
+is detected from the **email** Zoho sends the admin ("*&lt;Learner&gt; has completed
+course &lt;Course&gt;.*"). A Microsoft 365 **Power Automate** flow catches that email
+and fires GitHub `repository_dispatch`, which issues **and** emails the
+certificate — hands-off after setup, within a minute of completion.
 
-- Logic: `sync_zoho.py` + `certissuer/zoho.py` (Zoho Learn API client).
-- Setup (OAuth app, refresh token, portal/course ids, secrets):
+```
+Zoho completion email → Power Automate → GitHub repository_dispatch
+   → parse name+course → resolve email from Zoho roster → issue + email cert
+```
+
+- Logic: `issue_from_completion.py` + `certissuer/zoho.py` (roster lookup).
+- Workflow: `.github/workflows/zoho-completion.yml` (also runnable manually with
+  a test subject + **Dry run**).
+- Idempotent — a learner already holding the cert is skipped.
+- Full setup (Zoho credentials + the Power Automate flow):
   **[docs/ZOHO_SETUP.md](docs/ZOHO_SETUP.md)**.
-- Validate safely first: run the workflow with **Dry run** (or
-  `python sync_zoho.py --dry-run`) to list who *would* be issued; use
-  `--dump` to inspect the raw Zoho report.
 
 ### Skills
 

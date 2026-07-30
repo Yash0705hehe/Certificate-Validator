@@ -1,36 +1,46 @@
-"""Minimal Zoho Learn API client for reading course completions.
+"""Zoho Learn API client — confirmed endpoints.
 
-Used by the scheduled sync to find learners who have completed a course, so
-their certificates can be issued and emailed automatically.
+Zoho Learn does not expose a reachable "who completed a course" report to the
+public API, so completions are detected from the course-completion **email**
+Zoho sends the admin (handled via a Power Automate flow → repository_dispatch).
+This module's job is the one API call that *does* work reliably: fetch a
+course's member roster so we can resolve a learner's email from their name.
 
-Only the standard library is used for HTTP. Configuration comes from the
-environment (see .env.example / docs/ZOHO_SETUP.md):
+Confirmed request shape (India DC example):
+    GET https://learn.zoho.in/learn/api/v1/portal/<portal>/course/<courseId>/member
+    Authorization: Zoho-oauthtoken <access_token>
+  → { "STATUS":"OK", "MEMBERS": { "usersDetails": [ {name, emailId, ...}, ... ] } }
 
-  ZOHO_ACCOUNTS_DOMAIN  OAuth host for your data center, e.g. accounts.zoho.com
-                        (.in / .eu / .com.au / .jp for other DCs).
-  ZOHO_API_DOMAIN       Learn API host, e.g. learn.zoho.com (matches your DC).
-  ZOHO_CLIENT_ID        OAuth client id.
-  ZOHO_CLIENT_SECRET    OAuth client secret.
-  ZOHO_REFRESH_TOKEN    OAuth refresh token (long-lived).
-  ZOHO_PORTAL_ID        Your Learn portal / org id (sent as the orgId header).
-  ZOHO_COURSE_MAP       JSON mapping Zoho course id -> our course key, e.g.
-                        {"895000000012345": "GHG"}.
-
-NOTE: Zoho's exact report path and field names vary a little by portal/API
-version. `iter_completed_learners` looks across the common field names and, if
-it can't find learners, tells you to run `sync_zoho.py --dump` and share the
-shape so the mapping can be pinned down. This is intentional — it lets us
-validate against your real portal on the first run without guessing blind.
+Environment (see docs/ZOHO_SETUP.md):
+  ZOHO_ACCOUNTS_DOMAIN  OAuth host, e.g. accounts.zoho.in
+  ZOHO_API_DOMAIN       Learn API host, e.g. learn.zoho.in
+  ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN
+  ZOHO_PORTAL           portal slug, e.g. aa-impact
+  ZOHO_COURSE_MAP       JSON mapping the Zoho course *name* (as it appears in the
+                        completion email) to our course + its Zoho course id:
+                        {"GHG Accounting Course": {"id":"58084000000002174","course":"GHG"}}
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+
+
+def normalize(value: str) -> str:
+    """Lowercase, collapse internal whitespace, strip — for name/course matching."""
+    return " ".join((value or "").split()).strip().lower()
+
+
+@dataclass(frozen=True)
+class CourseTarget:
+    zoho_course_id: str
+    course: str  # our course key (GHG / Nature / GHG_Nature_Bundle)
 
 
 @dataclass
@@ -40,8 +50,9 @@ class ZohoConfig:
     client_id: str
     client_secret: str
     refresh_token: str
-    portal_id: str
-    course_map: dict[str, str]
+    portal: str
+    # normalized Zoho course name -> CourseTarget
+    course_map: dict[str, CourseTarget]
 
     @classmethod
     def from_env(cls) -> "ZohoConfig":
@@ -49,7 +60,7 @@ class ZohoConfig:
             "ZOHO_CLIENT_ID",
             "ZOHO_CLIENT_SECRET",
             "ZOHO_REFRESH_TOKEN",
-            "ZOHO_PORTAL_ID",
+            "ZOHO_PORTAL",
             "ZOHO_COURSE_MAP",
         ]
         missing = [k for k in required if not os.environ.get(k)]
@@ -58,21 +69,29 @@ class ZohoConfig:
                 "Missing Zoho env var(s): " + ", ".join(missing) + " (see docs/ZOHO_SETUP.md)."
             )
         try:
-            course_map = json.loads(os.environ["ZOHO_COURSE_MAP"])
-            assert isinstance(course_map, dict) and course_map
+            raw = json.loads(os.environ["ZOHO_COURSE_MAP"])
+            assert isinstance(raw, dict) and raw
+            course_map = {
+                normalize(name): CourseTarget(str(v["id"]), str(v["course"]))
+                for name, v in raw.items()
+            }
         except Exception:
             raise RuntimeError(
-                'ZOHO_COURSE_MAP must be JSON like {"<zoho_course_id>": "GHG"}.'
+                'ZOHO_COURSE_MAP must be JSON like '
+                '{"GHG Accounting Course": {"id":"58084000000002174","course":"GHG"}}.'
             ) from None
         return cls(
-            accounts_domain=os.environ.get("ZOHO_ACCOUNTS_DOMAIN", "accounts.zoho.com"),
-            api_domain=os.environ.get("ZOHO_API_DOMAIN", "learn.zoho.com"),
+            accounts_domain=os.environ.get("ZOHO_ACCOUNTS_DOMAIN", "accounts.zoho.in"),
+            api_domain=os.environ.get("ZOHO_API_DOMAIN", "learn.zoho.in"),
             client_id=os.environ["ZOHO_CLIENT_ID"],
             client_secret=os.environ["ZOHO_CLIENT_SECRET"],
             refresh_token=os.environ["ZOHO_REFRESH_TOKEN"],
-            portal_id=os.environ["ZOHO_PORTAL_ID"],
-            course_map={str(k): str(v) for k, v in course_map.items()},
+            portal=os.environ["ZOHO_PORTAL"],
+            course_map=course_map,
         )
+
+    def target_for_course_name(self, course_name: str) -> CourseTarget | None:
+        return self.course_map.get(normalize(course_name))
 
 
 class ZohoClient:
@@ -80,7 +99,6 @@ class ZohoClient:
         self.cfg = cfg
         self._token: str | None = None
 
-    # --- auth ---------------------------------------------------------------
     def access_token(self) -> str:
         if self._token:
             return self._token
@@ -93,8 +111,9 @@ class ZohoClient:
                 "grant_type": "refresh_token",
             }
         ).encode()
-        req = urllib.request.Request(url, data=data, method="POST")
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(
+            urllib.request.Request(url, data=data, method="POST"), timeout=30
+        ) as resp:
             body = json.loads(resp.read().decode())
         token = body.get("access_token")
         if not token:
@@ -102,103 +121,42 @@ class ZohoClient:
         self._token = token
         return token
 
-    # --- requests -----------------------------------------------------------
-    def _get(self, path: str, params: dict | None = None) -> dict:
-        url = f"https://{self.cfg.api_domain}{path}"
-        if params:
-            url += "?" + urllib.parse.urlencode(params)
+    def course_members(self, course_id: str) -> list[dict]:
+        """Return the course roster (each has name, emailId, ...)."""
+        url = (
+            f"https://{self.cfg.api_domain}/learn/api/v1/portal/"
+            f"{self.cfg.portal}/course/{course_id}/member"
+        )
         req = urllib.request.Request(url, method="GET")
         req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
-        req.add_header("orgId", self.cfg.portal_id)
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
-                return json.loads(resp.read().decode())
+                body = json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
-            raise RuntimeError(f"Zoho API {e.code} on {path}: {detail}") from None
+            raise RuntimeError(f"Zoho API {e.code} fetching members: {detail}") from None
+        return (body.get("MEMBERS") or {}).get("usersDetails") or []
 
-    def fetch_course_report(self, course_id: str) -> dict:
-        """Fetch the course report (learners + progress) for a course.
+    def resolve_email(self, course_id: str, learner_name: str) -> str | None:
+        """Find a learner's email by (normalized) name in the course roster.
 
-        Path is overridable via ZOHO_REPORT_PATH if your portal differs; the
-        default targets the documented course-report endpoint.
+        Returns None if there is no unique match (caller should log/skip).
         """
-        template = os.environ.get(
-            "ZOHO_REPORT_PATH", "/api/v1/courses/{course_id}/report"
-        )
-        return self._get(template.format(course_id=course_id))
+        target = normalize(learner_name)
+        matches = [
+            u for u in self.course_members(course_id) if normalize(u.get("name", "")) == target
+        ]
+        if len(matches) == 1:
+            return (matches[0].get("emailId") or "").strip() or None
+        return None
 
 
-# --- completion extraction (defensive across field-name variants) -----------
-
-_NAME_KEYS = ("name", "fullName", "userName", "learnerName", "displayName")
-_EMAIL_KEYS = ("email", "emailId", "emailID", "mailId", "learnerEmail")
-_STATUS_KEYS = ("status", "progressStatus", "completionStatus", "courseStatus")
-_PERCENT_KEYS = ("percentageCompleted", "percentCompleted", "progress", "completion")
-_DATE_KEYS = ("completedTime", "completedDate", "completionTime", "completedOn")
-_LIST_KEYS = ("learners", "members", "records", "data", "report", "users", "result")
+_SUBJECT_RE = re.compile(r"^\s*(?P<name>.+?)\s+has completed course\s+(?P<course>.+?)\.?\s*$")
 
 
-def _first(d: dict, keys) -> str | None:
-    for k in keys:
-        if k in d and d[k] not in (None, ""):
-            return d[k]
-    return None
-
-
-def _is_completed(row: dict) -> bool:
-    status = (_first(row, _STATUS_KEYS) or "").strip().lower()
-    if status in {"completed", "complete", "finished", "passed"}:
-        return True
-    pct = _first(row, _PERCENT_KEYS)
-    try:
-        return pct is not None and float(str(pct).rstrip("%")) >= 100
-    except ValueError:
-        return False
-
-
-def _learner_rows(report: dict) -> list[dict]:
-    for k in _LIST_KEYS:
-        v = report.get(k)
-        if isinstance(v, list):
-            return v
-        if isinstance(v, dict):  # sometimes nested one level
-            for kk in _LIST_KEYS:
-                if isinstance(v.get(kk), list):
-                    return v[kk]
-    return []
-
-
-@dataclass
-class Completion:
-    name: str
-    email: str
-    completed_at: str | None  # ISO/date string if Zoho provides one
-
-
-def iter_completed_learners(report: dict) -> list[Completion]:
-    """Return completed learners from a course report, or raise a helpful error
-    if the report shape isn't recognized (run sync_zoho.py --dump to inspect)."""
-    rows = _learner_rows(report)
-    if not rows:
-        raise RuntimeError(
-            "Could not find a learner list in the Zoho course report. Run "
-            "`python sync_zoho.py --dump` and share the JSON shape so the field "
-            "mapping in certissuer/zoho.py can be pinned to your portal."
-        )
-    out: list[Completion] = []
-    for row in rows:
-        if not isinstance(row, dict) or not _is_completed(row):
-            continue
-        email = _first(row, _EMAIL_KEYS)
-        name = _first(row, _NAME_KEYS)
-        if not email or not name:
-            continue  # can't issue without both; surfaced in the run summary
-        out.append(
-            Completion(
-                name=str(name).strip(),
-                email=str(email).strip(),
-                completed_at=_first(row, _DATE_KEYS),
-            )
-        )
-    return out
+def parse_completion_subject(subject: str) -> tuple[str, str] | None:
+    """Parse '<Name> has completed course <Course>.' -> (name, course_name)."""
+    m = _SUBJECT_RE.match(subject or "")
+    if not m:
+        return None
+    return m.group("name").strip(), m.group("course").strip()
