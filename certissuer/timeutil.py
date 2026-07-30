@@ -56,3 +56,31 @@ def to_iso(dt: datetime) -> str:
     """ISO-8601 string exactly as it will be stored/returned (e.g.
     ``2026-07-30T12:00:00+00:00``)."""
     return dt.isoformat()
+
+
+def _in_display_tz(dt: datetime):
+    """Return dt converted to the display timezone (or UTC if tz data missing)."""
+    from .config import DISPLAY_TZ
+
+    try:
+        from zoneinfo import ZoneInfo
+
+        return dt.astimezone(ZoneInfo(DISPLAY_TZ))
+    except Exception:
+        return dt
+
+
+def calendar_day(dt: datetime) -> str:
+    """``YYYY-MM-DD`` completion day in the display timezone.
+
+    This is the value the verifier matches on and that is embedded in the QR
+    code, so the printed date and the QR agree.
+    """
+    return _in_display_tz(dt).strftime("%Y-%m-%d")
+
+
+def display_date(dt: datetime) -> str:
+    """Human-readable completion date, e.g. ``10 July 2026``."""
+    local = _in_display_tz(dt)
+    # %-d is not portable; strip a possible leading zero manually.
+    return local.strftime("%d %B %Y").lstrip("0")

@@ -127,12 +127,10 @@ def main(argv: list[str] | None = None) -> int:
             from certissuer.pdf import render_certificate_pdf
 
             pdf_bytes = render_certificate_pdf(
-                candidate_name=record["candidate_name"],
-                course_title=record["_course_title"],
-                course=record["course"],
-                completed_at=record["_completed_dt"],
+                recipient_name=record["candidate_name"],
                 certificate_id=record["certificate_id"],
-                company=record.get("company"),
+                completed_at=record["_completed_dt"],
+                course=record["_course_meta"],
             )
             with open(args.pdf_out, "wb") as fh:
                 fh.write(pdf_bytes)

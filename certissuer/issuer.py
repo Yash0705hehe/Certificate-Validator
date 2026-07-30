@@ -112,7 +112,7 @@ def build_record(data: IssuanceInput) -> dict:
         "pdf_storage_path": f"{certificate_id}.pdf",
         "status": "active",
         "_completed_dt": completed_dt,  # internal, stripped before insert
-        "_course_title": meta.title,  # internal, stripped before insert
+        "_course_meta": meta,  # internal, stripped before insert
     }
 
 
@@ -135,12 +135,10 @@ def issue_certificate(data: IssuanceInput) -> IssuanceResult:
 
     # 4. Render the PDF.
     pdf_bytes = render_certificate_pdf(
-        candidate_name=name,
-        course_title=meta.title,
-        course=data.course,
-        completed_at=completed_dt,
+        recipient_name=name,
         certificate_id=certificate_id,
-        company=company,
+        completed_at=completed_dt,
+        course=meta,
     )
 
     # 5. Upload to the private storage bucket (upsert so a re-run is safe).
