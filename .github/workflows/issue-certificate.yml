@@ -30,6 +30,11 @@ on:
         description: "Completion date YYYY-MM-DD (blank = today)"
         required: false
         type: string
+      send_email:
+        description: "Email the certificate PDF to the participant?"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   # Serialize issuance runs so two certificates are never minted in parallel.
@@ -59,16 +64,22 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
           IN_NAME: ${{ github.event.inputs.name }}
           IN_EMAIL: ${{ github.event.inputs.email }}
           IN_COMPANY: ${{ github.event.inputs.company }}
           IN_COURSE: ${{ github.event.inputs.course }}
           IN_COMPLETED_AT: ${{ github.event.inputs.completed_at }}
+          IN_SEND_EMAIL: ${{ github.event.inputs.send_email }}
         run: |
+          EMAIL_FLAG=""
+          if [ "$IN_SEND_EMAIL" = "true" ]; then EMAIL_FLAG="--send-email"; fi
           python issue_certificate.py \
             --name "$IN_NAME" \
             --email "$IN_EMAIL" \
             --company "$IN_COMPANY" \
             --course "$IN_COURSE" \
             --completed-at "$IN_COMPLETED_AT" \
+            $EMAIL_FLAG \
             --json

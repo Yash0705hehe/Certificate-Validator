@@ -77,6 +77,17 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the resulting record as JSON.",
     )
+    p.add_argument(
+        "--send-email",
+        action="store_true",
+        help="After issuing, email the certificate PDF to the participant "
+        "(requires RESEND_API_KEY). Ignored with --dry-run.",
+    )
+    p.add_argument(
+        "--email-to",
+        default=None,
+        help="Override the recipient address (defaults to the participant email).",
+    )
     return p
 
 
@@ -141,6 +152,17 @@ def main(argv: list[str] | None = None) -> int:
     _load_dotenv()
     result = issue_certificate(data)
     _print_result(vars(result), args.json, "Certificate issued:")
+
+    if args.send_email:
+        from certissuer.emailer import send_certificate_email
+
+        email_result = send_certificate_email(
+            result.certificate_id, to=args.email_to or args.email
+        )
+        print(
+            f"Emailed certificate to {email_result.to} "
+            f"(provider id: {email_result.provider_id})"
+        )
     return 0
 
 

@@ -104,10 +104,38 @@ datetime; defaults to now), `--json`, `--dry-run`, `--pdf-out`.
 ### Via GitHub Actions
 
 `.github/workflows/issue-certificate.yml` provides a manual **Run workflow**
-form (name / email / company / course / date). Add two repository secrets first:
+form (name / email / company / course / date, plus an optional *Email the
+certificate* toggle). Add two repository secrets first:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+
+## Emailing certificates
+
+Certificates can be emailed to the participant as a PDF attachment via
+[Resend](https://resend.com).
+
+- CLI: add `--send-email` (optionally `--email-to`) to `issue_certificate.py`,
+  or email an already-issued one with
+  `python send_certificate_email.py --certificate-id AAI-... [--to addr]`.
+- GitHub Actions: the *Email the certificate* toggle on **Issue certificate**,
+  or the standalone **Email certificate** workflow
+  (`.github/workflows/email-certificate.yml`) for an existing certificate.
+
+Extra secrets/env required for email:
+
+- `RESEND_API_KEY` — from your Resend account.
+- `RESEND_FROM` — a sender on a domain you've **verified** in Resend
+  (e.g. `AA Impact Academy <certificates@aaimpactinc.com>`). Unverified senders
+  are rejected by Resend.
+
+### Skills
+
+Two Claude skills wrap the above:
+
+- `/issue-certificate` — give participant details; it issues the certificate.
+- `/email-certificate` — issue **and** email in one step, or email an
+  already-issued certificate by ID.
 
 ## Courses
 
