@@ -138,16 +138,29 @@ and fires GitHub `repository_dispatch`, which issues **and** emails the
 certificate — hands-off after setup, within a minute of completion.
 
 ```
-Zoho completion email → Power Automate → GitHub repository_dispatch
+Zoho completion email → certificate@ mailbox
+   → GitHub polls it (Microsoft Graph, every ~15 min)
    → parse name+course → resolve email from Zoho roster → issue + email cert
 ```
 
-- Logic: `issue_from_completion.py` + `certissuer/zoho.py` (roster lookup).
-- Workflow: `.github/workflows/zoho-completion.yml` (also runnable manually with
-  a test subject + **Dry run**).
-- Idempotent — a learner already holding the cert is skipped.
-- Full setup (Zoho credentials + the Power Automate flow):
-  **[docs/ZOHO_SETUP.md](docs/ZOHO_SETUP.md)**.
+The completion emails land in a dedicated `certificate@aaimpactinc.com` mailbox,
+and a scheduled GitHub workflow reads them via Microsoft Graph (no Power Automate
+premium needed). It parses each "*&lt;Learner&gt; has completed course &lt;Course&gt;.*",
+resolves the learner's email from the Zoho roster, and issues + emails the
+certificate. Idempotent — a learner already holding the cert is skipped.
+
+- Logic: `poll_completion_mail.py` + `certissuer/msgraph.py` (mailbox) +
+  `issue_from_completion.py` + `certissuer/zoho.py` (roster lookup).
+- Workflow: `.github/workflows/poll-completions.yml` (scheduled + manual dry-run).
+- Setup:
+  - Zoho credentials — **[docs/ZOHO_SETUP.md](docs/ZOHO_SETUP.md)**
+  - Mailbox reading (Azure app + refresh token) —
+    **[docs/MS_GRAPH_SETUP.md](docs/MS_GRAPH_SETUP.md)**
+
+There's also `.github/workflows/zoho-completion.yml` (a `repository_dispatch` +
+manual entry point that issues from a single subject line) — used for manual
+tests, or if you later wire a push trigger (e.g. Power Automate) instead of
+polling.
 
 ### Skills
 

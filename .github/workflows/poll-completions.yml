@@ -1,0 +1,62 @@
+name: Poll completions
+
+# Every ~15 minutes: read the certificate@ mailbox (Microsoft Graph) for Zoho
+# "<Learner> has completed course <Course>." emails and issue + email their
+# certificates. Idempotent — already-issued learners are skipped, so the
+# overlapping poll windows never duplicate.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      lookback:
+        description: "Hours of recent mail to scan"
+        required: false
+        default: "3"
+        type: string
+      dry_run:
+        description: "Dry run (resolve only; no writes/emails)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: poll-completions
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Poll mailbox and issue
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          ZOHO_ACCOUNTS_DOMAIN: ${{ secrets.ZOHO_ACCOUNTS_DOMAIN }}
+          ZOHO_API_DOMAIN: ${{ secrets.ZOHO_API_DOMAIN }}
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          ZOHO_PORTAL: ${{ secrets.ZOHO_PORTAL }}
+          ZOHO_COURSE_MAP: ${{ secrets.ZOHO_COURSE_MAP }}
+          MS_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET }}
+          MS_REFRESH_TOKEN: ${{ secrets.MS_REFRESH_TOKEN }}
+          IN_LOOKBACK: ${{ github.event.inputs.lookback }}
+          IN_DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          FLAG=""
+          if [ "$IN_DRY_RUN" = "true" ]; then FLAG="--dry-run"; fi
+          python poll_completion_mail.py --lookback "${IN_LOOKBACK:-3}" $FLAG

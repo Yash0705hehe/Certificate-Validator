@@ -19,8 +19,6 @@ from __future__ import annotations
 import argparse
 import sys
 
-from certissuer.zoho import ZohoClient, ZohoConfig, parse_completion_subject
-
 
 def _already_issued(supabase, email: str, course: str) -> bool:
     res = (
@@ -33,6 +31,64 @@ def _already_issued(supabase, email: str, course: str) -> bool:
         .execute()
     )
     return bool(res.data)
+
+
+def process_subject(
+    subject: str,
+    *,
+    dry_run: bool = False,
+    no_email: bool = False,
+    cfg=None,
+    client=None,
+    supabase=None,
+) -> str:
+    """Handle one completion-email subject end to end. Returns a status line.
+
+    Reused by the CLI and the mailbox poller. Optional cfg/client/supabase let a
+    caller reuse connections across many messages. Raises on hard failures
+    (missing config); soft outcomes (unmapped course, unresolved name, already
+    issued) are returned as strings.
+    """
+    from certissuer.zoho import ZohoClient, ZohoConfig, parse_completion_subject
+
+    parsed = parse_completion_subject(subject)
+    if not parsed:
+        return f"IGNORED (unrecognized subject): {subject!r}"
+    name, course_name = parsed
+
+    cfg = cfg or ZohoConfig.from_env()
+    target = cfg.target_for_course_name(course_name)
+    if not target:
+        return f"IGNORED (course not mapped): {course_name!r}"
+
+    client = client or ZohoClient(cfg)
+    email = client.resolve_email(target.zoho_course_id, name)
+    if not email:
+        return f"SKIPPED (couldn't uniquely resolve email for {name!r})"
+
+    if supabase is None:
+        from certissuer.client import get_service_client
+
+        supabase = get_service_client()
+
+    if _already_issued(supabase, email, target.course):
+        return f"SKIPPED (already issued): {name} <{email}> / {target.course}"
+
+    if dry_run:
+        return f"WOULD issue+email {target.course} to {name} <{email}>"
+
+    from certissuer.issuer import IssuanceInput, issue_certificate
+
+    result = issue_certificate(
+        IssuanceInput(candidate_name=name, candidate_email=email, course=target.course)
+    )
+    line = f"ISSUED {result.certificate_id} for {name} <{email}>"
+    if not no_email:
+        from certissuer.emailer import send_certificate_email
+
+        er = send_certificate_email(result.certificate_id, to=email)
+        line += f"; emailed to {er.to}"
+    return line
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -51,67 +107,18 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         pass
 
-    # Determine learner name + course name.
-    if args.subject:
-        parsed = parse_completion_subject(args.subject)
-        if not parsed:
-            print(f"Subject not recognized: {args.subject!r}", file=sys.stderr)
+    # Build a subject if given name+course instead.
+    subject = args.subject
+    if not subject:
+        if args.name and args.course_name:
+            subject = f"{args.name.strip()} has completed course {args.course_name.strip()}."
+        else:
+            print("Provide --subject, or both --name and --course-name.", file=sys.stderr)
             return 2
-        name, course_name = parsed
-    elif args.name and args.course_name:
-        name, course_name = args.name.strip(), args.course_name.strip()
-    else:
-        print("Provide --subject, or both --name and --course-name.", file=sys.stderr)
-        return 2
 
-    cfg = ZohoConfig.from_env()
-    target = cfg.target_for_course_name(course_name)
-    if not target:
-        print(
-            f"Course {course_name!r} is not in ZOHO_COURSE_MAP — ignoring "
-            "(only mapped courses are auto-issued).",
-            file=sys.stderr,
-        )
-        return 0  # not an error: we simply don't handle this course
-
-    client = ZohoClient(cfg)
-    email = client.resolve_email(target.zoho_course_id, name)
-    if not email:
-        print(
-            f"Could not uniquely resolve an email for learner {name!r} in the "
-            f"course roster — skipping. Check the name matches Zoho exactly.",
-            file=sys.stderr,
-        )
-        return 1
-
-    print(f"Resolved: {name} <{email}> → course {target.course}")
-
-    # Dedup + issue.
-    from certissuer.client import get_service_client
-
-    supabase = get_service_client()
-    if _already_issued(supabase, email, target.course):
-        print(f"Already issued for {email} / {target.course} — nothing to do.")
-        return 0
-
-    if args.dry_run:
-        print(f"DRY RUN — would issue + email {target.course} certificate to {email}.")
-        return 0
-
-    from certissuer.issuer import IssuanceInput, issue_certificate
-
-    result = issue_certificate(
-        IssuanceInput(candidate_name=name, candidate_email=email, course=target.course)
-    )
-    print(f"Issued {result.certificate_id} for {name} <{email}>")
-
-    if not args.no_email:
-        from certissuer.emailer import send_certificate_email
-
-        er = send_certificate_email(result.certificate_id, to=email)
-        print(f"Emailed to {er.to} (provider id: {er.provider_id})")
-
-    return 0
+    line = process_subject(subject, dry_run=args.dry_run, no_email=args.no_email)
+    print(line)
+    return 1 if line.startswith("SKIPPED") else 0
 
 
 if __name__ == "__main__":
