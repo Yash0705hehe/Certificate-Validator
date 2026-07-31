@@ -139,7 +139,7 @@ certificate — hands-off after setup, within a minute of completion.
 
 ```
 Zoho completion email → certificate@ mailbox
-   → GitHub polls it (Microsoft Graph, every ~15 min)
+   → GitHub polls it (Microsoft Graph, once a day)
    → parse name+course → resolve email from Zoho roster → issue + email cert
 ```
 

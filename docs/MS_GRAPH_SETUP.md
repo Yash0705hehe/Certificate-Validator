@@ -1,7 +1,7 @@
 # Read the certificate@ mailbox (Microsoft Graph) — one-time setup
 
 The **Poll completions** workflow reads the dedicated
-`certificate@aaimpactinc.com` inbox every ~15 minutes, finds Zoho's
+`certificate@aaimpactinc.com` inbox once a day, finds Zoho's
 "*&lt;Learner&gt; has completed course &lt;Course&gt;.*" emails, and issues + emails the
 certificates. No Power Automate / premium needed.
 
@@ -58,16 +58,16 @@ the poller uses Zoho to resolve the learner's email and the rest to issue+email.
 Repo → **Actions → Poll completions → Run workflow** → set **Dry run** = true
 (optionally raise **lookback** hours to reach an older completion email). The log
 should list the completion emails found and resolve each learner's email. Untick
-dry-run for a real run; after that the every-15-minutes schedule takes over.
+dry-run for a real run; after that the once-a-day schedule takes over.
 
 ## Notes
 
 - **Idempotent**: overlapping poll windows are safe — anyone already holding the
   certificate is skipped.
 - **Cadence**: change the `cron` in `.github/workflows/poll-completions.yml`
-  (default `*/15 * * * *`).
+  (default `0 6 * * *`, i.e. 06:00 UTC daily).
 - **Token lifetime**: the refresh token stays valid as long as it's used
-  regularly (the 15-min poll keeps it alive). If it's ever revoked (password
+  regularly (the daily poll keeps it alive). If it's ever revoked (password
   reset, Conditional Access), re-run step 2 and update `MS_REFRESH_TOKEN`.
 - If your tenant blocks device-code sign-in via Conditional Access, tell me and
   I'll switch the app to a confidential client + auth-code flow.

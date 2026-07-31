@@ -1,18 +1,18 @@
 name: Poll completions
 
-# Every ~15 minutes: read the certificate@ mailbox (Microsoft Graph) for Zoho
+# Once a day: read the certificate@ mailbox (Microsoft Graph) for Zoho
 # "<Learner> has completed course <Course>." emails and issue + email their
 # certificates. Idempotent — already-issued learners are skipped, so the
-# overlapping poll windows never duplicate.
+# 26h look-back (which overlaps the 24h gap) never causes duplicates.
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "0 6 * * *" # 06:00 UTC daily
   workflow_dispatch:
     inputs:
       lookback:
         description: "Hours of recent mail to scan"
         required: false
-        default: "3"
+        default: "26"
         type: string
       dry_run:
         description: "Dry run (resolve only; no writes/emails)"
@@ -59,4 +59,4 @@ jobs:
         run: |
           FLAG=""
           if [ "$IN_DRY_RUN" = "true" ]; then FLAG="--dry-run"; fi
-          python poll_completion_mail.py --lookback "${IN_LOOKBACK:-3}" $FLAG
+          python poll_completion_mail.py --lookback "${IN_LOOKBACK:-26}" $FLAG

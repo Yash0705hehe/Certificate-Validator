@@ -30,8 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--lookback",
         type=int,
-        default=3,
-        help="How many hours of recent mail to scan (default 3; overlap is safe).",
+        default=26,
+        help="How many hours of recent mail to scan (default 26 for a daily run; overlap is safe).",
     )
     p.add_argument(
         "--sender", default=ZOHO_SENDER, help="Sender address to match (override if needed)."
