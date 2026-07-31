@@ -4,9 +4,11 @@ name: Poll completions
 # "<Learner> has completed course <Course>." emails and issue + email their
 # certificates. Idempotent — already-issued learners are skipped, so the
 # 26h look-back (which overlaps the 24h gap) never causes duplicates.
+# NOTE: the live trigger is now the Power Automate flow → zoho-completion.yml
+# (repository_dispatch). This Microsoft Graph mailbox poller is kept only as a
+# manual fallback, so its daily schedule is disabled (no auto-runs / no daily
+# failures). Re-add a `schedule:` here if you ever want to switch back to it.
 on:
-  schedule:
-    - cron: "0 6 * * *" # 06:00 UTC daily
   workflow_dispatch:
     inputs:
       lookback:
