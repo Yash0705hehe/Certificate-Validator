@@ -113,7 +113,10 @@ certificate* toggle). Add two repository secrets first:
 ## Emailing certificates
 
 Certificates can be emailed to the participant as a PDF attachment via
-[Resend](https://resend.com).
+[Brevo](https://brevo.com). Brevo is used because the domain's DNS is on Wix
+(which can't add the subdomain MX records other providers need); Brevo works
+with a single **verified sender address** (verified by clicking a link emailed
+to it), so no DNS records are required to start.
 
 - CLI: add `--send-email` (optionally `--email-to`) to `issue_certificate.py`,
   or email an already-issued one with
@@ -124,10 +127,11 @@ Certificates can be emailed to the participant as a PDF attachment via
 
 Extra secrets/env required for email:
 
-- `RESEND_API_KEY` — from your Resend account.
-- `RESEND_FROM` — a sender on a domain you've **verified** in Resend
-  (e.g. `AA Impact Academy <certificates@aaimpactinc.com>`). Unverified senders
-  are rejected by Resend.
+- `BREVO_API_KEY` — from your Brevo account.
+- `BREVO_FROM` — `"Name <email>"` using a **verified sender** (or a verified
+  domain) in Brevo, e.g. `AA Impact Academy <certificate@aaimpactinc.com>`.
+  Adding Brevo's DKIM `TXT` records in Wix later improves inbox placement but
+  isn't required to start.
 
 ## Auto-issue on Zoho Learn completion
 

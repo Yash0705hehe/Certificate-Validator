@@ -1,18 +1,22 @@
-"""Email a participant their certificate PDF via Resend.
+"""Email a participant their certificate PDF via Brevo.
 
-Runs inside the GitHub Actions workflow (which has the Supabase service-role key
-and outbound network). It downloads the certificate PDF from the private storage
-bucket and sends it as an attachment through the Resend HTTP API.
+Brevo is used (instead of a domain-DNS sender) because the AA Impact domain's
+DNS is on Wix, which can't add the subdomain MX records other providers need.
+Brevo works with a single verified sender address (verified by clicking a link
+sent to that inbox), so no DNS records are required to start. Adding Brevo's
+DKIM TXT records in Wix later improves inbox placement, but isn't required.
+
+Runs inside GitHub Actions (which has the service-role key and network). It
+downloads the certificate PDF from the private storage bucket and sends it as
+an attachment through the Brevo transactional-email API.
 
 Configuration (environment):
-  RESEND_API_KEY   required — your Resend API key.
-  RESEND_FROM      sender, e.g. "AA Impact Academy <certificates@aaimpactinc.com>".
-                   Must be an address on a domain you've verified in Resend.
-                   Defaults to that address; override if your verified sender
-                   differs.
+  BREVO_API_KEY   required — your Brevo API key.
+  BREVO_FROM      sender, "Name <email>" form, e.g.
+                  "AA Impact Academy <certificate@aaimpactinc.com>". The email
+                  must be a verified sender (or on a verified domain) in Brevo.
 
-Only the standard library is used for the HTTP call, so there is no extra
-dependency to install.
+Only the standard library is used for the HTTP call.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -28,16 +33,24 @@ from . import config
 from .client import get_service_client
 from .timeutil import display_date
 
-RESEND_ENDPOINT = "https://api.resend.com/emails"
-DEFAULT_FROM = "AA Impact Academy <certificates@aaimpactinc.com>"
+BREVO_ENDPOINT = "https://api.brevo.com/v3/smtp/email"
+DEFAULT_FROM = "AA Impact Academy <certificate@aaimpactinc.com>"
 
 
 @dataclass
 class EmailResult:
     to: str
     certificate_id: str
-    provider_id: str | None  # Resend message id when sent
+    provider_id: str | None  # Brevo messageId when sent
     sent: bool
+
+
+def _parse_sender(value: str) -> tuple[str, str]:
+    """Parse "Name <email>" (or a bare email) into (name, email)."""
+    m = re.match(r"^\s*(.*?)\s*<\s*([^>]+?)\s*>\s*$", value)
+    if m:
+        return (m.group(1) or "AA Impact Academy"), m.group(2)
+    return "AA Impact Academy", value.strip()
 
 
 def _completed_display(completed_at_iso: str) -> str:
@@ -70,23 +83,24 @@ def compose(name: str, certificate_id: str, course: str, completed_display: str)
     return subject, html
 
 
-def _send_via_resend(payload: dict, api_key: str) -> str:
+def _send_via_brevo(payload: dict, api_key: str) -> str:
     req = urllib.request.Request(
-        RESEND_ENDPOINT,
+        BREVO_ENDPOINT,
         data=json.dumps(payload).encode("utf-8"),
         headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
+            "api-key": api_key,
+            "content-type": "application/json",
+            "accept": "application/json",
         },
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-            return body.get("id", "")
+            body = json.loads(resp.read().decode("utf-8") or "{}")
+            return body.get("messageId", "")
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")
-        raise RuntimeError(f"Resend API error {e.code}: {detail}") from None
+        raise RuntimeError(f"Brevo API error {e.code}: {detail}") from None
 
 
 def send_certificate_email(
@@ -95,7 +109,7 @@ def send_certificate_email(
     dry_run: bool = False,
 ) -> EmailResult:
     """Email the certificate PDF for ``certificate_id`` to ``to`` (or the
-    candidate's own email). Set ``dry_run`` to skip Supabase/Resend and just
+    candidate's own email). Set ``dry_run`` to skip Supabase/Brevo and just
     report what would happen."""
     if dry_run:
         return EmailResult(
@@ -136,25 +150,26 @@ def send_certificate_email(
         _completed_display(row["completed_at"]),
     )
 
-    api_key = os.environ.get("RESEND_API_KEY")
+    api_key = os.environ.get("BREVO_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "RESEND_API_KEY is not set. Add it as a repository secret (see README)."
+            "BREVO_API_KEY is not set. Add it as a repository secret (see README)."
         )
+    sender_name, sender_email = _parse_sender(os.environ.get("BREVO_FROM", DEFAULT_FROM))
 
     payload = {
-        "from": os.environ.get("RESEND_FROM", DEFAULT_FROM),
-        "to": [recipient],
+        "sender": {"name": sender_name, "email": sender_email},
+        "to": [{"email": recipient}],
         "subject": subject,
-        "html": html,
-        "attachments": [
+        "htmlContent": html,
+        "attachment": [
             {
-                "filename": row["pdf_storage_path"],
+                "name": row["pdf_storage_path"],
                 "content": base64.b64encode(pdf_bytes).decode("ascii"),
             }
         ],
     }
-    provider_id = _send_via_resend(payload, api_key)
+    provider_id = _send_via_brevo(payload, api_key)
     return EmailResult(
         to=recipient,
         certificate_id=row["certificate_id"],

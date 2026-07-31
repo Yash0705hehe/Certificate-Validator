@@ -81,7 +81,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--send-email",
         action="store_true",
         help="After issuing, email the certificate PDF to the participant "
-        "(requires RESEND_API_KEY). Ignored with --dry-run.",
+        "(requires BREVO_API_KEY). Ignored with --dry-run.",
     )
     p.add_argument(
         "--email-to",

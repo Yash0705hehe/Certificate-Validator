@@ -2,7 +2,7 @@ name: Email certificate
 
 # Manually-triggered: email an already-issued certificate PDF to a recipient.
 # Requires repository secrets SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and
-# RESEND_API_KEY (optionally RESEND_FROM).
+# BREVO_API_KEY (optionally BREVO_FROM).
 on:
   workflow_dispatch:
     inputs:
@@ -38,8 +38,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_FROM: ${{ secrets.BREVO_FROM }}
           IN_CERT_ID: ${{ github.event.inputs.certificate_id }}
           IN_TO: ${{ github.event.inputs.to }}
         run: |

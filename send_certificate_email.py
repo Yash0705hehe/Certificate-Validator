@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Email an already-issued certificate to a recipient.
 
-Downloads the certificate PDF from Supabase Storage and emails it via Resend.
+Downloads the certificate PDF from Supabase Storage and emails it via Brevo.
 
     python send_certificate_email.py --certificate-id AAI-GHG-CA-1ef1a25344d59f69
     python send_certificate_email.py --certificate-id AAI-... --to someone@example.com
 
-Requires SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and RESEND_API_KEY in the
+Requires SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and BREVO_API_KEY in the
 environment (see .env.example).
 """
 
@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Report what would be sent without contacting Supabase/Resend.",
+        help="Report what would be sent without contacting Supabase/Brevo.",
     )
     args = p.parse_args(argv)
 

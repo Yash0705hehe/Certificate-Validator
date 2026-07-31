@@ -64,8 +64,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_FROM: ${{ secrets.BREVO_FROM }}
           IN_NAME: ${{ github.event.inputs.name }}
           IN_EMAIL: ${{ github.event.inputs.email }}
           IN_COMPANY: ${{ github.event.inputs.company }}
