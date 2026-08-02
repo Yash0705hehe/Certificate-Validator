@@ -64,7 +64,7 @@ one:
 
 | Secret | Value |
 | ------ | ----- |
-| `COURSE_ACCESS_URLS` | JSON map of course → Zoho course link, e.g. `{"GHG": "https://learn.zoho.in/portal/aa-impact/course/58084000000002174"}` |
+| `COURSE_ACCESS_URLS` | JSON map of course → Zoho course link, e.g. `{"GHG": "https://learn.zoho.in/portal/aa-impact/course/scope-3-quiz"}` |
 
 Already present from before (reused as-is): `SUPABASE_URL`,
 `SUPABASE_SERVICE_ROLE_KEY`, `BREVO_API_KEY`, `BREVO_FROM`, and the `ZOHO_*`

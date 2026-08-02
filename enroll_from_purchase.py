@@ -19,7 +19,7 @@ Usage:
 
 Course-access links come from the COURSE_ACCESS_URLS env var, a JSON map of our
 course key to the Zoho Learn course URL, e.g.
-  COURSE_ACCESS_URLS={"GHG": "https://learn.zoho.in/portal/aa-impact/course/58084000000002174"}
+  COURSE_ACCESS_URLS={"GHG": "https://learn.zoho.in/portal/aa-impact/course/scope-3-quiz"}
 """
 
 from __future__ import annotations

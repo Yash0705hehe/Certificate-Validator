@@ -54,7 +54,7 @@ Supabase dashboard → **Project Settings → Edge Functions → Manage secrets*
 | `APP_BASE_URL` | where the app is hosted, e.g. `https://academy.aaimpactinc.com` |
 | `BREVO_API_KEY` | your Brevo key (same one the certificate emails use) |
 | `BREVO_FROM` | `AA Impact Academy <certificate@aaimpactinc.com>` |
-| `COURSE_ACCESS_URLS` | `{"GHG": "https://learn.zoho.in/portal/aa-impact/course/58084000000002174"}` |
+| `COURSE_ACCESS_URLS` | `{"GHG": "https://learn.zoho.in/portal/aa-impact/course/scope-3-quiz"}` |
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided automatically — don't add them.
 
