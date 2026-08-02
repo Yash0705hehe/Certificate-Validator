@@ -166,6 +166,31 @@ manual entry point that issues from a single subject line) — used for manual
 tests, or if you later wire a push trigger (e.g. Power Automate) instead of
 polling.
 
+## Paid enrolment (Wix checkout → auto-enrol → certificate)
+
+The paid Wix site **AA Impact Inc.** (`www.aaimpactinc.com`) is the storefront:
+a buyer pays there, and a Velo backend event fires GitHub `repository_dispatch`
+(type `wix_enrolment`). The **Wix enrolment** workflow then records the buyer in
+Supabase (`public.enrolments`), emails them the Zoho Learn course-access link,
+and best-effort auto-enrols anyone who is already a Zoho user. Course completion
+then flows through the existing certificate pipeline — hands-off end to end.
+
+```
+pay on aaimpactinc.com → Velo event → repository_dispatch [wix_enrolment]
+   → record buyer + email course link (+ best-effort Zoho enrol)
+   → learner completes → Zoho completion email → certificate issued + emailed
+```
+
+- Logic: `enroll_from_purchase.py` + `certissuer/zoho.enroll_member` +
+  `certissuer/emailer.send_enrolment_email`.
+- Workflow: `.github/workflows/wix-enrolment.yml` (dispatch + manual dry-run).
+- Full setup (Pricing Plan / paid Form, payment provider, Velo snippet,
+  secrets): **[docs/WIX_ENROLMENT_SETUP.md](docs/WIX_ENROLMENT_SETUP.md)**.
+
+> Zoho's add-member API needs an existing Zoho user id (not an email), so the
+> reliable path for a brand-new buyer is the emailed **course-access link** —
+> they sign up with the same email they paid with and start immediately.
+
 ### Skills
 
 Two Claude skills wrap the above:

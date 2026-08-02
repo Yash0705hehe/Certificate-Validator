@@ -1,0 +1,193 @@
+# Paid enrolment on your Wix site (aaimpactinc.com)
+
+This connects the certificate system to your **paid** Wix site so that when
+someone buys the course, a real payment is taken, you capture their **name and
+email**, they're given course access, and — once they finish — their
+certificate is issued and emailed automatically.
+
+Your paid site is **AA Impact Inc.** (`www.aaimpactinc.com`) — Premium plan,
+custom domain, **Velo enabled**, with **Wix Forms & Payments** and **Wix
+Pricing Plans** available. That's everything needed; the free "Certificate
+Validator" prototype could not take payments, this site can.
+
+```
+Buyer pays on aaimpactinc.com  (real gateway, name + email captured)
+   → Velo backend event on successful payment
+       → GitHub repository_dispatch  (type: wix_enrolment)
+           → "Wix enrolment" workflow:
+               • records the buyer in Supabase (enrolments table)
+               • emails them the Zoho Learn course-access link
+               • best-effort auto-enrol if already a Zoho user
+   → buyer takes the course → Zoho completion email
+       → (existing) Power Automate → certificate issued + emailed
+```
+
+You can do this in two phases. **Phase 1 alone already answers "a real gateway
+and how do I get their name + email."** Phase 2 adds the hands-off automation.
+
+---
+
+## Phase 1 — Take real payments and capture buyers (no code)
+
+Pick **one** checkout style on aaimpactinc.com:
+
+### Option A — Pricing Plan (recommended for selling course access)
+1. Wix dashboard → **Pricing Plans** → **+ New Plan**.
+2. Name it e.g. *GHG Accounting Course*, set a **one-time** price in your
+   currency, Save.
+3. Add the plan to a page (a **Pricing Plans** / list section, or a Buy button).
+4. Dashboard → **Settings → Accept Payments** → connect a provider (Wix
+   Payments, Stripe, PayPal, etc.). This is the real gateway.
+
+### Option B — Paid Form (simplest for capturing name + email directly)
+1. Add a **Wix Form** with **Name** and **Email** fields.
+2. In the form's settings turn on **Payment** and set the price.
+3. Connect a payment provider as above.
+
+**Where the buyer details land (both options):** Wix dashboard →
+**Contacts** and **Pricing Plans → Orders** (Option A) or **Forms →
+Submissions** (Option B). Every buyer's name, email, and payment is recorded
+there automatically — that's your list.
+
+> Do Phase 1 first and confirm a test purchase shows up under Contacts/Orders.
+> Then add Phase 2 to make it hands-off.
+
+---
+
+## Phase 2 — Auto-enrol + auto-certificate (Velo → GitHub)
+
+### 2.1 One-time secrets
+
+**In GitHub** (repo → Settings → Secrets and variables → Actions → New
+repository secret) — most already exist from the certificate setup; add the new
+one:
+
+| Secret | Value |
+| ------ | ----- |
+| `COURSE_ACCESS_URLS` | JSON map of course → Zoho course link, e.g. `{"GHG": "https://learn.zoho.in/portal/aa-impact/course/58084000000002174"}` |
+
+Already present from before (reused as-is): `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, `BREVO_API_KEY`, `BREVO_FROM`, and the `ZOHO_*`
+secrets.
+
+Get the **course link** from Zoho Learn: open the course → **Share** (or copy
+the course URL from the address bar). In the course's enrolment settings, allow
+learners to **sign up / self-enrol** so a brand-new buyer can create their
+login with the same email they paid with.
+
+**In Wix** (dashboard → **Settings → Secrets Manager**):
+
+| Secret name | Value |
+| ----------- | ----- |
+| `GITHUB_DISPATCH_TOKEN` | A GitHub **fine-grained personal access token** scoped to this repo with **Contents: Read and write** (this permission is what lets it fire `repository_dispatch`). |
+
+### 2.2 Velo backend event
+
+Turn on **Dev Mode** (top bar → **Dev Mode / Velo**), then:
+
+1. In the Velo sidebar open **Backend** → the file **`events.js`** (create it if
+   it doesn't exist).
+2. Paste the handler below. It fires on a successful Pricing Plan purchase,
+   looks up the buyer's name + email, and fires the GitHub workflow.
+
+```javascript
+// backend/events.js
+import { members } from 'wix-members-backend';
+import { getSecret } from 'wix-secrets-backend';
+import { fetch } from 'wix-fetch';
+
+// Map a purchased plan name -> our course key (GHG / Nature / GHG_Nature_Bundle).
+const PLAN_TO_COURSE = {
+  'GHG Accounting Course': 'GHG',
+  // 'Nature Course': 'Nature',
+  // 'GHG + Nature Bundle': 'GHG_Nature_Bundle',
+};
+
+const GITHUB_OWNER = 'yash0705hehe';
+const GITHUB_REPO = 'certificate-validator';
+
+export async function wixPricingPlans_onOrderPurchased(event) {
+  try {
+    const order = event.order || event;
+    const planName = order.planName || (order.plan && order.plan.name) || '';
+    const course = PLAN_TO_COURSE[planName];
+    if (!course) return; // not a course plan we care about
+
+    // Resolve the buyer's name + email from their member record.
+    const memberId = order.buyer && order.buyer.memberId;
+    let name = '', email = '';
+    if (memberId) {
+      const m = await members.getMember(memberId, { fieldsets: ['FULL'] });
+      email = (m.loginEmail || (m.contactDetails && m.contactDetails.emails && m.contactDetails.emails[0]) || '');
+      const c = m.contactDetails || {};
+      name = [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || email;
+    }
+    if (!email) return;
+
+    const token = await getSecret('GITHUB_DISPATCH_TOKEN');
+    await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/dispatches`, {
+      method: 'post',
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        event_type: 'wix_enrolment',
+        client_payload: {
+          name,
+          email,
+          course,
+          order_id: order._id || order.id || '',
+          amount: (order.priceDetails && order.priceDetails.total) || '',
+          currency: (order.priceDetails && order.priceDetails.currency) || '',
+        },
+      }),
+    });
+  } catch (e) {
+    console.error('wix_enrolment dispatch failed', e);
+  }
+}
+```
+
+> **Using a paid Form instead of a Pricing Plan?** Use the Wix **Automations**
+> or Forms submit event to call the same `fetch(...)` block — the `name` and
+> `email` come straight off the submitted form fields, so you can skip the
+> `members.getMember` lookup.
+
+3. **Publish** the site.
+
+### 2.3 Test it
+
+- **From GitHub (no payment needed):** repo → **Actions → Wix enrolment → Run
+  workflow**, enter a name + email + `GHG`, tick **Dry run** first. A dry run
+  reports what would happen; an un-ticked run records the buyer in Supabase and
+  emails the course link.
+- **End to end:** make a real (or test-mode) purchase on aaimpactinc.com and
+  confirm a **Wix enrolment** run appears in Actions within a minute, the buyer
+  shows up in the Supabase `enrolments` table, and the welcome email arrives.
+
+---
+
+## What each piece does
+
+| Piece | Role |
+| ----- | ---- |
+| Wix Pricing Plan / paid Form | Real payment gateway + captures buyer name/email |
+| `backend/events.js` (Velo) | Fires GitHub `repository_dispatch` on successful payment |
+| `.github/workflows/wix-enrolment.yml` | Runs the enrolment on each purchase |
+| `enroll_from_purchase.py` | Records the buyer, emails the course link, best-effort Zoho enrol |
+| `public.enrolments` (Supabase) | Your buyer list — one row per (email, course) |
+| Existing Zoho→Power Automate→certificate flow | Issues + emails the certificate on completion |
+
+## Notes & limits
+
+- **Zoho auto-enrol is best-effort.** Zoho Learn's add-member API takes an
+  existing Zoho user id, not an email, so a brand-new buyer can't be added by
+  API. The welcome email's **course-access link** is the reliable path: the
+  buyer signs up with their paid email and starts immediately. Anyone who is
+  already a Zoho user is detected and reported as already enrolled.
+- **Idempotent.** A retried webhook or a repeat run for the same
+  (email, course) is a no-op — the buyer is enrolled and emailed once.
+- **Certificate step is unchanged.** Completion still flows through the existing
+  Zoho completion email → Power Automate → certificate pipeline.

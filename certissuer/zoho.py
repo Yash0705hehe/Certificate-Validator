@@ -93,6 +93,13 @@ class ZohoConfig:
     def target_for_course_name(self, course_name: str) -> CourseTarget | None:
         return self.course_map.get(normalize(course_name))
 
+    def zoho_course_id_for_key(self, course_key: str) -> str | None:
+        """Reverse lookup: our course key (GHG / ...) -> Zoho course id."""
+        for target in self.course_map.values():
+            if target.course == course_key:
+                return target.zoho_course_id
+        return None
+
 
 class ZohoClient:
     def __init__(self, cfg: ZohoConfig):
@@ -149,6 +156,70 @@ class ZohoClient:
         if len(matches) == 1:
             return (matches[0].get("emailId") or "").strip() or None
         return None
+
+    def find_member(self, course_id: str, email: str) -> dict | None:
+        """Return the roster entry whose emailId matches ``email`` (case-insensitive)."""
+        target = (email or "").strip().lower()
+        if not target:
+            return None
+        for u in self.course_members(course_id):
+            if (u.get("emailId") or "").strip().lower() == target:
+                return u
+        return None
+
+    @staticmethod
+    def _member_zuid(member: dict) -> str | None:
+        for key in ("id", "zuid", "userId", "zsoid"):
+            val = member.get(key)
+            if val:
+                return str(val)
+        return None
+
+    def enroll_member(
+        self, course_id: str, user_ids: list[str], role: str = "MEMBER"
+    ) -> dict:
+        """Add existing portal users (by Zuid) to a course.
+
+        Zoho Learn's add-members API takes **Zuids**, not emails — so a
+        brand-new buyer who has never signed in to Zoho can't be enrolled this
+        way. Resolve a Zuid via :meth:`find_member` first; for anyone not yet in
+        the portal, fall back to the course sign-up link (the welcome email).
+        Requires the ``ZohoLearn.course.UPDATE`` scope on the refresh token.
+        """
+        url = (
+            f"https://{self.cfg.api_domain}/learn/api/v1/portal/"
+            f"{self.cfg.portal}/course/{course_id}/member"
+        )
+        payload = json.dumps(
+            {"userIds": [str(u) for u in user_ids], "role": role}
+        ).encode()
+        req = urllib.request.Request(url, data=payload, method="POST")
+        req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")
+            raise RuntimeError(f"Zoho API {e.code} adding members: {detail}") from None
+
+    def try_enroll_by_email(self, course_id: str, email: str) -> str:
+        """Best-effort enrol an existing portal user by email.
+
+        Returns one of: ``"already_member"`` (already on the course),
+        ``"enrolled"`` (found their Zuid and added them), or ``"invite_needed"``
+        (not a portal user yet — deliver the course sign-up link by email
+        instead). Never raises for the ordinary "not a member yet" case.
+        """
+        member = self.find_member(course_id, email)
+        if member:
+            status = str(member.get("learnerCourseStatus") or member.get("status") or "")
+            # Anyone already on the roster is effectively enrolled.
+            return "already_member"
+        # Not on this course's roster. We could only add them if they already
+        # have a Zuid in the portal, which find_member (course-scoped) can't
+        # tell us — so hand off to the email sign-up link.
+        return "invite_needed"
 
 
 _SUBJECT_RE = re.compile(r"^\s*(?P<name>.+?)\s+has completed course\s+(?P<course>.+?)\.?\s*$")

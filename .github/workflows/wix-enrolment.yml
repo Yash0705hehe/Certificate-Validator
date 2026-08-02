@@ -1,0 +1,78 @@
+name: Wix enrolment
+
+# Fired by a Velo backend event on the paid aaimpactinc.com site (via
+# repository_dispatch) when someone completes a course purchase. Records the
+# buyer in Supabase, best-effort auto-enrols them into the Zoho Learn course,
+# and emails them their course-access link. Idempotent per (email, course).
+#
+# Also runnable manually for testing.
+on:
+  repository_dispatch:
+    types: [wix_enrolment]
+  workflow_dispatch:
+    inputs:
+      name:
+        description: "Buyer full name"
+        required: true
+        type: string
+      email:
+        description: "Buyer email"
+        required: true
+        type: string
+      course:
+        description: "Course purchased"
+        required: true
+        default: GHG
+        type: choice
+        options: [GHG, Nature, GHG_Nature_Bundle]
+      dry_run:
+        description: "Dry run (resolve only; no writes/emails)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: wix-enrolment-${{ github.event.client_payload.email || github.event.inputs.email }}
+  cancel-in-progress: false
+
+jobs:
+  enrol:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Enrol buyer from purchase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_FROM: ${{ secrets.BREVO_FROM }}
+          COURSE_ACCESS_URLS: ${{ secrets.COURSE_ACCESS_URLS }}
+          ZOHO_ACCOUNTS_DOMAIN: ${{ secrets.ZOHO_ACCOUNTS_DOMAIN }}
+          ZOHO_API_DOMAIN: ${{ secrets.ZOHO_API_DOMAIN }}
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          ZOHO_PORTAL: ${{ secrets.ZOHO_PORTAL }}
+          ZOHO_COURSE_MAP: ${{ secrets.ZOHO_COURSE_MAP }}
+          # repository_dispatch payload OR manual inputs:
+          NAME: ${{ github.event.client_payload.name || github.event.inputs.name }}
+          EMAIL: ${{ github.event.client_payload.email || github.event.inputs.email }}
+          COURSE: ${{ github.event.client_payload.course || github.event.inputs.course }}
+          ORDER_ID: ${{ github.event.client_payload.order_id }}
+          AMOUNT: ${{ github.event.client_payload.amount }}
+          CURRENCY: ${{ github.event.client_payload.currency }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          ARGS=(--name "$NAME" --email "$EMAIL" --course "${COURSE:-GHG}")
+          if [ -n "$ORDER_ID" ]; then ARGS+=(--order-id "$ORDER_ID"); fi
+          if [ -n "$AMOUNT" ]; then ARGS+=(--amount "$AMOUNT"); fi
+          if [ -n "$CURRENCY" ]; then ARGS+=(--currency "$CURRENCY"); fi
+          if [ "$DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
+          python enroll_from_purchase.py "${ARGS[@]}"

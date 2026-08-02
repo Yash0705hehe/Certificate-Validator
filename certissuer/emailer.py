@@ -83,6 +83,66 @@ def compose(name: str, certificate_id: str, course: str, completed_display: str)
     return subject, html
 
 
+def compose_enrolment(name: str, course: str, course_url: str):
+    """Return (subject, html) for the post-payment welcome / course-access email."""
+    course_label = {
+        "GHG": "GHG Accounting Course",
+        "Nature": "Nature Course",
+        "GHG_Nature_Bundle": "GHG + Nature Bundle",
+    }.get(course, course)
+    subject = f"Welcome to the {course_label} — start learning"
+    button = (
+        f'<a href="{course_url}" style="display:inline-block;background:#17242e;'
+        'color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:6px;'
+        f'font-weight:bold">Access your course</a>'
+        if course_url
+        else ""
+    )
+    html = f"""\
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#17242e;line-height:1.6">
+  <p>Dear {name},</p>
+  <p>Thank you for enrolling in the <strong>{course_label}</strong> with AA Impact.
+  Your payment has been received and your seat is confirmed.</p>
+  <p>Use the button below to open the course. If you don't already have a Zoho
+  Learn login, you'll be prompted to create one with <em>this</em> email address —
+  please use the same address you enrolled with so your completion is recorded
+  against you.</p>
+  <p style="margin:22px 0">{button}</p>
+  <p>When you finish the course, your verified AA Impact certificate is issued and
+  emailed to you automatically — no extra step needed.</p>
+  <p style="color:#6b7280;font-size:13px">AA Impact Inc. &middot; www.aaimpactinc.com</p>
+</div>"""
+    return subject, html
+
+
+def send_enrolment_email(
+    to: str,
+    name: str,
+    course: str,
+    course_url: str,
+    dry_run: bool = False,
+) -> EmailResult:
+    """Email a buyer their course-access link after a successful payment."""
+    if dry_run:
+        return EmailResult(to=to, certificate_id="", provider_id=None, sent=False)
+
+    api_key = os.environ.get("BREVO_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "BREVO_API_KEY is not set. Add it as a repository secret (see README)."
+        )
+    sender_name, sender_email = _parse_sender(os.environ.get("BREVO_FROM", DEFAULT_FROM))
+    subject, html = compose_enrolment(name, course, course_url)
+    payload = {
+        "sender": {"name": sender_name, "email": sender_email},
+        "to": [{"email": to.strip()}],
+        "subject": subject,
+        "htmlContent": html,
+    }
+    provider_id = _send_via_brevo(payload, api_key)
+    return EmailResult(to=to.strip(), certificate_id="", provider_id=provider_id, sent=True)
+
+
 def _send_via_brevo(payload: dict, api_key: str) -> str:
     req = urllib.request.Request(
         BREVO_ENDPOINT,
