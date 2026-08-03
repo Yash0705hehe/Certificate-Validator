@@ -90,11 +90,11 @@ def compose_enrolment(name: str, course: str, course_url: str):
         "Nature": "Nature Course",
         "GHG_Nature_Bundle": "GHG + Nature Bundle",
     }.get(course, course)
-    subject = f"Welcome to the {course_label} — start learning"
+    subject = f"Your {course_label} enrolment — access within 3 working days"
     button = (
         f'<a href="{course_url}" style="display:inline-block;background:#17242e;'
         'color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:6px;'
-        f'font-weight:bold">Access your course</a>'
+        f'font-weight:bold">Go to the course</a>'
         if course_url
         else ""
     )
@@ -102,14 +102,15 @@ def compose_enrolment(name: str, course: str, course_url: str):
 <div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#17242e;line-height:1.6">
   <p>Dear {name},</p>
   <p>Thank you for enrolling in the <strong>{course_label}</strong> with AA Impact.
-  Your payment has been received and your seat is confirmed.</p>
-  <p>Use the button below to open the course. If you don't already have a Zoho
-  Learn login, you'll be prompted to create one with <em>this</em> email address —
-  please use the same address you enrolled with so your completion is recorded
-  against you.</p>
+  Your payment has been received.</p>
+  <p>To set up your access, use the button below to open the course and sign up /
+  request enrolment using <em>this</em> email address — the same one you paid
+  with, so your completion is recorded against you.</p>
   <p style="margin:22px 0">{button}</p>
-  <p>When you finish the course, your verified AA Impact certificate is issued and
-  emailed to you automatically — no extra step needed.</p>
+  <p>Our team reviews new enrolments, so you'll receive full access to the course
+  <strong>within 3 working days</strong>. We'll confirm once your access is live.</p>
+  <p>When you complete the course, your verified AA Impact certificate is issued
+  and emailed to you automatically — no extra step needed.</p>
   <p style="color:#6b7280;font-size:13px">AA Impact Inc. &middot; www.aaimpactinc.com</p>
 </div>"""
     return subject, html
