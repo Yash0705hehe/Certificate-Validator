@@ -191,26 +191,13 @@ pay on aaimpactinc.com → Velo event → repository_dispatch [wix_enrolment]
 > reliable path for a brand-new buyer is the emailed **course-access link** —
 > they sign up with the same email they paid with and start immediately.
 
-### Stripe checkout (the AA Impact Academy app)
+### The Academy app checkout
 
-The public Academy app takes **real card payments via Stripe** — its "Enrol as
-an Individual" / "Buy for a Team" buttons hand off to Stripe's hosted checkout,
-and a Stripe webhook drives the same enrolment pipeline above.
-
-```
-Academy app CTA → create-checkout (Supabase fn, price set server-side)
-   → Stripe hosted checkout (card, coupon, team seats, name+email)
-   → stripe-webhook (Supabase fn): record buyer + email course link
-   → completion → certificate issued + emailed → validated in-app
-```
-
-- Functions: `supabase/functions/create-checkout`, `supabase/functions/stripe-webhook` (deployed).
-- App wiring: `web/academy-stripe-checkout.js` (injected before `</body>`).
-- Full setup (Stripe account/product/keys, webhook, secrets, hosting):
-  **[docs/STRIPE_SETUP.md](docs/STRIPE_SETUP.md)**.
-
-The price is set server-side (`STRIPE_PRICES`), and the **webhook is the source
-of truth** that a payment happened — the browser redirect can't fake enrolment.
+The public Academy app (`web/academy-app.html`) is the storefront. Its "Enrol"
+buttons send the buyer to the **Wix checkout** on `aaimpactinc.com`, where the
+real payment is taken (Wix's own payment gateway) and the buyer's name + email
+are captured. A **Wix Automation** then emails the buyer their course-access
+link. See **[docs/WIX_ENROLMENT_SETUP.md](docs/WIX_ENROLMENT_SETUP.md)**.
 
 ### Skills
 
