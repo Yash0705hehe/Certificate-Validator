@@ -108,3 +108,55 @@ These let the workflow call the one Zoho API that works: the course roster
   by matching their name. If the name isn't a unique match, the run logs it and
   skips (rare — surface it and fix the roster name).
 - To add another course, extend `ZOHO_COURSE_MAP` with its name → `{id, course}`.
+
+---
+
+## Part C — Auto-provision new (non-Zoho) buyers *(optional)*
+
+**The problem.** When someone *buys* the course but has never used Zoho, they
+have no Zoho account yet. Zoho Learn's add-members API takes an existing user id
+(Zuid), **not** an email, so a brand-new buyer can't be silently enrolled. By
+default the purchase hook (`enroll_from_purchase.py`) just emails them a sign-up
+link and they self-enrol.
+
+This part makes it **hands-off**: the hook *invites* the buyer to your portal
+automatically. Zoho emails them a one-click activation link; they set a password
+(or sign in with Google) once, and they're in. They're invited as a **MEMBER
+(learner)**, so they can take the course but **cannot share or re-invite anyone**
+— and because your portal is private, a forwarded link is useless to a
+non-member. (There is no way to give a private course to someone with *zero*
+action on their part: accessing a private course requires a login, and that one
+login per person is exactly what prevents sharing.)
+
+**1. Add the scope to your refresh token.** The invite API needs
+`ZohoLearn.customportaluser.CREATE` *in addition to* your existing
+`ZohoLearn.course.ALL`. Regenerate the refresh token (Part A, step 2) with both
+scopes, space-separated:
+```
+ZohoLearn.course.ALL ZohoLearn.customportaluser.CREATE
+```
+Update the `ZOHO_REFRESH_TOKEN` secret with the new value.
+
+**2. Find your custom-portal id.** In Zoho Learn open your external/custom
+portal's user-management screen; the id appears in the invite/resend URLs
+(`.../portal/aa-impact/customportal/<THIS_ID>/invite/...`). If you're unsure,
+Zoho support can tell you. Add these **GitHub repository secrets**:
+
+   | Secret | Value |
+   | --- | --- |
+   | `ZOHO_CUSTOM_PORTAL_ID` | your custom-portal id |
+   | `ZOHO_INVITE_URL` | *(optional)* override, only if your DC/portal path differs from the default |
+
+**3. Complete the enrolment on acceptance.** Inviting creates the user; to drop
+them straight into the course when they accept, add a **group- or
+designation-based auto-enrol rule** in the course's *Add Members* settings so
+new portal users in that group are enrolled automatically. (Without the rule,
+they're in the portal but you'd enrol them into the course manually.)
+
+**4. How it behaves.** The invite is **best-effort and never blocks a buyer**:
+the purchase-hook status shows `zoho=invited` / `already_invited` on success, or
+`invite_unconfigured` (feature off) / `invite_error: …` otherwise — and in every
+non-success case the buyer still gets the course-access email as before. To
+test, run the **Wix enrolment** workflow (or `enroll_from_purchase.py`) for a
+throwaway email and check the `zoho=…` note in the log; leave
+`ZOHO_CUSTOM_PORTAL_ID` unset to keep the plain email-link behaviour.

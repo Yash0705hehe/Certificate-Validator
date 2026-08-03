@@ -6,9 +6,12 @@ aaimpactinc.com site) whenever someone completes a course purchase. It:
   1. records the buyer (name + email + order) in the Supabase ``enrolments``
      table — idempotent on (email, course), so a retried webhook is a no-op,
   2. best-effort auto-enrols them into the Zoho Learn course if they're already
-     a portal user (Zoho's add-member API needs an existing Zoho id),
+     a portal user (Zoho's add-member API needs an existing Zoho id); a
+     brand-new buyer is instead invited to the portal via the invite API (when
+     ZOHO_CUSTOM_PORTAL_ID is configured) so they can be auto-enrolled on
+     acceptance,
   3. emails them their Zoho course-access link so a brand-new buyer can sign up
-     and start immediately.
+     and start immediately (also the fallback when the invite API is off).
 
 Course completion → certificate is handled by the existing pipeline
 (issue_from_completion.py), so nothing else is needed here.
@@ -121,16 +124,21 @@ def process_purchase(
 
     notes: list[str] = []
 
-    # 2) Best-effort Zoho auto-enrol (only works for existing portal users).
+    # 2) Best-effort Zoho auto-enrol. Existing portal users are already on the
+    #    roster; a brand-new (non-Zoho) buyer is provisioned via the invite API
+    #    so they can be auto-enrolled on acceptance (see docs/ZOHO_SETUP.md).
     zoho_status = "skipped"
     if not no_enroll:
         try:
             from certissuer.zoho import ZohoClient, ZohoConfig
 
             cfg = ZohoConfig.from_env()
+            client = ZohoClient(cfg)
             zoho_course_id = cfg.zoho_course_id_for_key(course)
             if zoho_course_id:
-                zoho_status = ZohoClient(cfg).try_enroll_by_email(zoho_course_id, email)
+                zoho_status = client.try_enroll_by_email(zoho_course_id, email)
+                if zoho_status == "invite_needed":
+                    zoho_status = client.invite_portal_user(email, name)
             else:
                 zoho_status = "no_course_id"
         except Exception as exc:  # never block the buyer's access on a Zoho hiccup

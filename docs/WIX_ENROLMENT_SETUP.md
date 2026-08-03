@@ -184,9 +184,13 @@ export async function wixPricingPlans_onOrderPurchased(event) {
 
 - **Zoho auto-enrol is best-effort.** Zoho Learn's add-member API takes an
   existing Zoho user id, not an email, so a brand-new buyer can't be added by
-  API. The welcome email's **course-access link** is the reliable path: the
-  buyer signs up with their paid email and starts immediately. Anyone who is
-  already a Zoho user is detected and reported as already enrolled.
+  API. Anyone who is already a Zoho user is detected and reported as already
+  enrolled. For brand-new buyers you have two options: (a) leave it as-is and
+  the welcome email's **course-access link** lets them self-enrol with their
+  paid email; or (b) turn on **auto-provisioning** so the hook *invites* them to
+  the portal automatically as a learner (they can't share the course) — see
+  **docs/ZOHO_SETUP.md → Part C**. Either way the welcome email is still sent as
+  a fallback.
 - **Idempotent.** A retried webhook or a repeat run for the same
   (email, course) is a no-op — the buyer is enrolled and emailed once.
 - **Certificate step is unchanged.** Completion still flows through the existing
