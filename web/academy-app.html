@@ -387,14 +387,19 @@ document.addEventListener('DOMContentLoaded', async function() {
   var CHECKOUT_URL = "https://www.aaimpactinc.com/checkout";
   var VIDEO_SRC = "training-video.mp4"; // companion file hosted next to this page
 
-  // 1) All "Enrol" CTAs go straight to the Wix checkout (no in-app checkout page).
+  // 1) All purchase/enrol CTAs go straight to the Wix checkout. Tag-agnostic:
+  //    matches a short element label (not a big wrapper) starting with a CTA phrase.
   function isEnrolCta(t) {
     t = (t || "").toLowerCase().replace(/\s+/g, " ").trim();
-    return t.indexOf("enrol as an individual") === 0 || t.indexOf("buy for a team") === 0 || t.indexOf("enrol now") === 0;
+    if (t.length > 40) return false; // label only, never a big container
+    return t.indexOf("enrol as an individual") === 0 ||
+           t.indexOf("buy for a team") === 0 ||
+           t.indexOf("enrol now") === 0 ||
+           t.indexOf("enquire about enrolment") === 0;
   }
   function ctaMatch(el) {
-    for (var i = 0; i < 4 && el && el.nodeType === 1; i++, el = el.parentElement) {
-      if ((el.tagName === "A" || el.tagName === "BUTTON" || el.getAttribute("role") === "button") && isEnrolCta(el.textContent)) return true;
+    for (var i = 0; i < 5 && el && el.nodeType === 1; i++, el = el.parentElement) {
+      if (isEnrolCta(el.textContent)) return true;
     }
     return false;
   }
