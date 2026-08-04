@@ -225,17 +225,32 @@ class ZohoClient:
             f"https://{self.cfg.api_domain}/learn/api/v1/portal/"
             f"{self.cfg.portal}/course/{course_id}/member"
         )
-        payload = json.dumps(
-            {"userIds": [str(u) for u in user_ids], "role": role}
-        ).encode()
-        req = urllib.request.Request(url, data=payload, method="POST")
+        # Zoho Learn write APIs are form-encoded (see invite_to_hub): userIds is a
+        # JSON array *string*, not a JSON body.
+        ids = json.dumps([str(u) for u in user_ids])
+        data = urllib.parse.urlencode({"userIds": ids, "role": role}).encode()
+        print(f"[zoho] enroll_member POST {url} userIds={ids} role={role}", flush=True)
+        req = urllib.request.Request(url, data=data, method="POST")
         req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
-        req.add_header("Content-Type", "application/json")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
-                return json.loads(resp.read().decode())
+                body = resp.read().decode("utf-8", "replace")
+            print(f"[zoho] enroll_member -> {body[:600]}", flush=True)
+            try:
+                parsed = json.loads(body)
+            except Exception:
+                parsed = {"raw": body}
+            low = body.lower()
+            if isinstance(parsed, dict) and (
+                str(parsed.get("status", "")).lower() == "failure"
+                or str(parsed.get("result", "")).lower() == "failure"
+            ):
+                raise RuntimeError(f"Zoho add-members failed: {body[:300]}")
+            return parsed
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
+            print(f"[zoho] enroll_member HTTPError {e.code}: {detail[:600]}", flush=True)
             raise RuntimeError(f"Zoho API {e.code} adding members: {detail}") from None
 
     def try_enroll_by_email(self, course_id: str, email: str) -> str:
@@ -337,12 +352,18 @@ class ZohoClient:
         req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
-                body = json.loads(resp.read().decode() or "{}")
-        except Exception:
+                raw = resp.read().decode() or "{}"
+            print(f"[zoho] hub_member_zuid GET members -> {raw[:600]}", flush=True)
+            body = json.loads(raw)
+        except Exception as e:
+            print(f"[zoho] hub_member_zuid error: {e}", flush=True)
             return None
         for member in _iter_member_dicts(body):
             if (member.get("emailId") or member.get("email") or "").strip().lower() == target:
-                return self._member_zuid(member)
+                zuid = self._member_zuid(member)
+                print(f"[zoho] hub_member_zuid({target}) -> {zuid}", flush=True)
+                return zuid
+        print(f"[zoho] hub_member_zuid({target}) -> not found among hub members", flush=True)
         return None
 
     def ensure_course_access(self, course_id: str, email: str, name: str | None = None) -> str:
