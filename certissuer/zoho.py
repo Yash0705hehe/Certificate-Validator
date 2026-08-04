@@ -346,24 +346,35 @@ class ZohoClient:
         target = (email or "").strip().lower()
         if not target:
             return None
-        req = urllib.request.Request(
-            self._hub_url("member", "ZOHO_HUB_MEMBERS_URL"), method="GET"
+        override = os.environ.get("ZOHO_HUB_MEMBERS_URL")
+        base = f"https://{self.cfg.api_domain}/learn/api/v1/hubs/{self.cfg.portal}"
+        candidates = (
+            [override]
+            if override
+            else [f"{base}/users", f"{base}/user", f"{base}/members", f"{base}/member"]
         )
-        req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                raw = resp.read().decode() or "{}"
-            print(f"[zoho] hub_member_zuid GET members -> {raw[:600]}", flush=True)
-            body = json.loads(raw)
-        except Exception as e:
-            print(f"[zoho] hub_member_zuid error: {e}", flush=True)
+        body = None
+        for url in candidates:
+            req = urllib.request.Request(url, method="GET")
+            req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    raw = resp.read().decode() or "{}"
+                print(f"[zoho] hub_member_zuid GET {url} -> {raw[:400]}", flush=True)
+                body = json.loads(raw)
+                break
+            except urllib.error.HTTPError as e:
+                print(f"[zoho] hub_member_zuid GET {url} -> HTTP {e.code}", flush=True)
+            except Exception as e:
+                print(f"[zoho] hub_member_zuid GET {url} error: {e}", flush=True)
+        if body is None:
             return None
         for member in _iter_member_dicts(body):
             if (member.get("emailId") or member.get("email") or "").strip().lower() == target:
                 zuid = self._member_zuid(member)
                 print(f"[zoho] hub_member_zuid({target}) -> {zuid}", flush=True)
                 return zuid
-        print(f"[zoho] hub_member_zuid({target}) -> not found among hub members", flush=True)
+        print(f"[zoho] hub_member_zuid({target}) -> not found in members list", flush=True)
         return None
 
     def ensure_course_access(self, course_id: str, email: str, name: str | None = None) -> str:
