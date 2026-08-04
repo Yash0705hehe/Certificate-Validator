@@ -53,6 +53,10 @@ class ZohoConfig:
     portal: str
     # normalized Zoho course name -> CourseTarget
     course_map: dict[str, CourseTarget]
+    # Custom-portal id used by the invite API to provision brand-new buyers who
+    # aren't Zoho users yet. Optional — when unset, invite_portal_user is a
+    # no-op and the caller falls back to emailing a sign-up link.
+    custom_portal_id: str | None = None
 
     @classmethod
     def from_env(cls) -> "ZohoConfig":
@@ -88,6 +92,7 @@ class ZohoConfig:
             refresh_token=os.environ["ZOHO_REFRESH_TOKEN"],
             portal=os.environ["ZOHO_PORTAL"],
             course_map=course_map,
+            custom_portal_id=(os.environ.get("ZOHO_CUSTOM_PORTAL_ID") or "").strip() or None,
         )
 
     def target_for_course_name(self, course_name: str) -> CourseTarget | None:
@@ -183,7 +188,8 @@ class ZohoClient:
         Zoho Learn's add-members API takes **Zuids**, not emails — so a
         brand-new buyer who has never signed in to Zoho can't be enrolled this
         way. Resolve a Zuid via :meth:`find_member` first; for anyone not yet in
-        the portal, fall back to the course sign-up link (the welcome email).
+        the portal, provision them with :meth:`invite_portal_user` (or fall back
+        to the course sign-up link in the welcome email).
         Requires the ``ZohoLearn.course.UPDATE`` scope on the refresh token.
         """
         url = (
@@ -218,8 +224,63 @@ class ZohoClient:
             return "already_member"
         # Not on this course's roster. We could only add them if they already
         # have a Zuid in the portal, which find_member (course-scoped) can't
-        # tell us — so hand off to the email sign-up link.
+        # tell us — so hand off to invite_portal_user / the email sign-up link.
         return "invite_needed"
+
+    def invite_portal_user(
+        self, email: str, name: str | None = None, role: str = "MEMBER"
+    ) -> str:
+        """Invite a brand-new person to the portal by email (best-effort).
+
+        Unlike :meth:`enroll_member` (which needs an existing Zuid), this
+        provisions the portal user from just an email, so a buyer who has never
+        touched Zoho can be onboarded automatically. Zoho emails them an
+        activation link; once they accept they become a portal user and can be
+        enrolled into the course — set up a group/designation auto-enrol rule in
+        Zoho Learn so that enrolment happens on acceptance (see
+        docs/ZOHO_SETUP.md). The ``role`` stays ``MEMBER`` (learner), so the
+        invited user can consume the course but never share or re-invite anyone.
+
+        Requires ``ZOHO_CUSTOM_PORTAL_ID`` and a refresh token that also carries
+        the ``ZohoLearn.customportaluser.CREATE`` scope. This never raises for
+        the ordinary cases — it returns a status string so the caller can still
+        fall back to the course-access email:
+
+          ``"invited"``            — invite sent,
+          ``"already_invited"``    — a pending/duplicate invite (fine),
+          ``"invite_unconfigured"``— no custom-portal id set (feature off),
+          ``"invite_error: ..."``  — anything else (caller emails the link).
+        """
+        email = (email or "").strip()
+        if not email:
+            return "invite_error: no email"
+        if not self.cfg.custom_portal_id:
+            return "invite_unconfigured"
+        # Endpoint mirrors the confirmed resend-invite URL family:
+        #   .../learn/api/v1/portal/<portal>/customportal/<id>/invite/<zuid>/resend
+        # Override with ZOHO_INVITE_URL if your DC/portal path differs.
+        url = os.environ.get("ZOHO_INVITE_URL") or (
+            f"https://{self.cfg.api_domain}/learn/api/v1/portal/"
+            f"{self.cfg.portal}/customportal/{self.cfg.custom_portal_id}/invite"
+        )
+        # "Invite custom portal users" is a bulk API (≤100/call). Only emailId +
+        # role are required; MEMBER = learner (cannot share/invite others).
+        payload = json.dumps({"users": [{"emailId": email, "role": role}]}).encode()
+        req = urllib.request.Request(url, data=payload, method="POST")
+        req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                resp.read()
+            return "invited"
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")
+            low = detail.lower()
+            if e.code == 409 or "already" in low or "exist" in low:
+                return "already_invited"
+            return f"invite_error: {e.code} {detail[:180]}"
+        except Exception as e:  # network/DNS/etc — must never block the buyer
+            return f"invite_error: {e}"
 
 
 _SUBJECT_RE = re.compile(r"^\s*(?P<name>.+?)\s+has completed course\s+(?P<course>.+?)\.?\s*$")
