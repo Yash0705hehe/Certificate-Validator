@@ -225,33 +225,47 @@ class ZohoClient:
             f"https://{self.cfg.api_domain}/learn/api/v1/portal/"
             f"{self.cfg.portal}/course/{course_id}/member"
         )
-        # Zoho Learn write APIs are form-encoded (see invite_to_hub): userIds is a
-        # JSON array *string*, not a JSON body.
-        ids = json.dumps([str(u) for u in user_ids])
-        data = urllib.parse.urlencode({"userIds": ids, "role": role}).encode()
-        print(f"[zoho] enroll_member POST {url} userIds={ids} role={role}", flush=True)
-        req = urllib.request.Request(url, data=data, method="POST")
-        req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                body = resp.read().decode("utf-8", "replace")
-            print(f"[zoho] enroll_member -> {body[:600]}", flush=True)
+        ids = [str(u) for u in user_ids]
+        print(f"[zoho] enroll_member POST {url} ids={ids} role={role}", flush=True)
+        # The add-members request shape isn't documented for us; try the plausible
+        # Zoho-Learn formats (mirroring the form-encoded invite) and use the first
+        # that doesn't come back status:failure.
+        attempts = [
+            ("form", urllib.parse.urlencode(
+                {"userlist": json.dumps([{"id": i, "role": role} for i in ids])})),
+            ("form", urllib.parse.urlencode({"userlist": json.dumps(ids), "role": role})),
+            ("form", urllib.parse.urlencode({"userIds": json.dumps(ids), "role": role})),
+            ("json", json.dumps({"userIds": ids, "role": role})),
+        ]
+        last = ""
+        for kind, payload in attempts:
+            req = urllib.request.Request(url, data=payload.encode(), method="POST")
+            req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
+            req.add_header(
+                "Content-Type",
+                "application/json" if kind == "json" else "application/x-www-form-urlencoded",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    body = resp.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", "replace")
+                print(f"[zoho] enroll_member[{kind}] HTTP {e.code}: {body[:250]}", flush=True)
+                last = body
+                continue
+            print(f"[zoho] enroll_member[{kind}] -> {body[:250]}", flush=True)
             try:
                 parsed = json.loads(body)
             except Exception:
                 parsed = {"raw": body}
-            low = body.lower()
-            if isinstance(parsed, dict) and (
+            failure = isinstance(parsed, dict) and (
                 str(parsed.get("status", "")).lower() == "failure"
                 or str(parsed.get("result", "")).lower() == "failure"
-            ):
-                raise RuntimeError(f"Zoho add-members failed: {body[:300]}")
-            return parsed
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "replace")
-            print(f"[zoho] enroll_member HTTPError {e.code}: {detail[:600]}", flush=True)
-            raise RuntimeError(f"Zoho API {e.code} adding members: {detail}") from None
+            )
+            if not failure:
+                return parsed if isinstance(parsed, dict) else {"raw": body}
+            last = body
+        raise RuntimeError(f"Zoho add-members failed (all formats): {last[:300]}")
 
     def try_enroll_by_email(self, course_id: str, email: str) -> str:
         """Best-effort enrol an existing portal user by email.
@@ -351,7 +365,7 @@ class ZohoClient:
         candidates = (
             [override]
             if override
-            else [f"{base}/users", f"{base}/user", f"{base}/members", f"{base}/member"]
+            else [f"{base}/members", f"{base}/users", f"{base}/user", f"{base}/member"]
         )
         body = None
         for url in candidates:
