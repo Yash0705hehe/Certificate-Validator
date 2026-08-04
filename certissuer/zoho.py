@@ -285,21 +285,30 @@ class ZohoClient:
         if last:
             user["lname"] = last
         url = self._hub_url("invite", "ZOHO_HUB_INVITE_URL")
-        payload = json.dumps({"userlist": [user]}).encode()
-        print(f"[zoho] invite_to_hub POST {url} payload={payload.decode()}", flush=True)
-        req = urllib.request.Request(url, data=payload, method="POST")
+        # Zoho Learn's invite API is form-encoded, with `userlist` holding a JSON
+        # array *string* — NOT a JSON body. A JSON body makes Zoho see userlist as
+        # empty ("Parameter userlist should not be empty").
+        userlist = json.dumps([user])
+        data = urllib.parse.urlencode({"userlist": userlist}).encode()
+        print(f"[zoho] invite_to_hub POST {url} userlist={userlist}", flush=True)
+        req = urllib.request.Request(url, data=data, method="POST")
         req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
-        req.add_header("Content-Type", "application/json")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 status = getattr(resp, "status", None) or getattr(resp, "code", "?")
                 body = resp.read().decode("utf-8", "replace")
             print(f"[zoho] invite_to_hub -> HTTP {status}: {body[:900]}", flush=True)
-            low = body.lower()
-            # A 2xx doesn't guarantee an invite went out — Zoho can return OK with
-            # an empty/failed result. Surface anything that smells like a failure.
-            if '"invited":[]' in low.replace(" ", "") or '"failed"' in low or '"errors"' in low:
-                return f"invite_maybe_failed: {body[:200]}"
+            try:
+                parsed = json.loads(body)
+            except Exception:
+                parsed = {}
+            # Zoho can return 2xx with {"status":"failure","reason":...}.
+            if isinstance(parsed, dict) and str(parsed.get("status", "")).lower() == "failure":
+                reason = str(parsed.get("reason") or body[:150])
+                if "already" in reason.lower() or "exist" in reason.lower():
+                    return "already_invited"
+                return f"invite_failed: {reason}"
             return "invited"
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
