@@ -284,23 +284,32 @@ class ZohoClient:
             user["fname"] = first
         if last:
             user["lname"] = last
+        url = self._hub_url("invite", "ZOHO_HUB_INVITE_URL")
         payload = json.dumps({"userlist": [user]}).encode()
-        req = urllib.request.Request(
-            self._hub_url("invite", "ZOHO_HUB_INVITE_URL"), data=payload, method="POST"
-        )
+        print(f"[zoho] invite_to_hub POST {url} payload={payload.decode()}", flush=True)
+        req = urllib.request.Request(url, data=payload, method="POST")
         req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
         req.add_header("Content-Type", "application/json")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
-                resp.read()
+                status = getattr(resp, "status", None) or getattr(resp, "code", "?")
+                body = resp.read().decode("utf-8", "replace")
+            print(f"[zoho] invite_to_hub -> HTTP {status}: {body[:900]}", flush=True)
+            low = body.lower()
+            # A 2xx doesn't guarantee an invite went out — Zoho can return OK with
+            # an empty/failed result. Surface anything that smells like a failure.
+            if '"invited":[]' in low.replace(" ", "") or '"failed"' in low or '"errors"' in low:
+                return f"invite_maybe_failed: {body[:200]}"
             return "invited"
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
+            print(f"[zoho] invite_to_hub HTTPError {e.code}: {detail[:900]}", flush=True)
             low = detail.lower()
             if e.code == 409 or "already" in low or "exist" in low:
                 return "already_invited"
             return f"invite_error: {e.code} {detail[:180]}"
         except Exception as e:  # network/DNS/etc — must never block the buyer
+            print(f"[zoho] invite_to_hub exception: {e}", flush=True)
             return f"invite_error: {e}"
 
     def hub_member_zuid(self, email: str) -> str | None:
