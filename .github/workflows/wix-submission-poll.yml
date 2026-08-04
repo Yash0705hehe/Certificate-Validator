@@ -65,7 +65,7 @@ jobs:
           ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
           ZOHO_PORTAL: ${{ secrets.ZOHO_PORTAL }}
           ZOHO_COURSE_MAP: ${{ secrets.ZOHO_COURSE_MAP }}
-          ZOHO_CUSTOM_PORTAL_ID: ${{ secrets.ZOHO_CUSTOM_PORTAL_ID }}
+          ZOHO_AUTO_ENROLL: ${{ secrets.ZOHO_AUTO_ENROLL }}
           # Manual-run toggles (schedule runs with all-false defaults)
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           NO_EMAIL: ${{ github.event.inputs.no_email }}
