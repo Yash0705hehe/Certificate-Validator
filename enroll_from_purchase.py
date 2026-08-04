@@ -5,13 +5,13 @@ Triggered (via GitHub repository_dispatch from a Velo backend event on the paid
 aaimpactinc.com site) whenever someone completes a course purchase. It:
   1. records the buyer (name + email + order) in the Supabase ``enrolments``
      table — idempotent on (email, course), so a retried webhook is a no-op,
-  2. best-effort auto-enrols them into the Zoho Learn course if they're already
-     a portal user (Zoho's add-member API needs an existing Zoho id); a
-     brand-new buyer is instead invited to the portal via the invite API (when
-     ZOHO_CUSTOM_PORTAL_ID is configured) so they can be auto-enrolled on
-     acceptance,
-  3. emails them their Zoho course-access link so a brand-new buyer can sign up
-     and start immediately (also the fallback when the invite API is off).
+  2. best-effort Zoho enrolment. With ZOHO_AUTO_ENROLL on, an existing hub user
+     is added straight to the course, while a brand-new buyer is invited to the
+     hub (Zoho's add-member API needs an existing Zoho id) and auto-enrolled on a
+     later poll once they accept. With it off, only existing course members are
+     detected,
+  3. emails them their Zoho course-access link (the welcome note; also the
+     self-serve fallback when ZOHO_AUTO_ENROLL is off).
 
 Course completion → certificate is handled by the existing pipeline
 (issue_from_completion.py), so nothing else is needed here.
@@ -135,12 +135,14 @@ def process_purchase(
             cfg = ZohoConfig.from_env()
             client = ZohoClient(cfg)
             zoho_course_id = cfg.zoho_course_id_for_key(course)
-            if zoho_course_id:
-                zoho_status = client.try_enroll_by_email(zoho_course_id, email)
-                if zoho_status == "invite_needed":
-                    zoho_status = client.invite_portal_user(email, name)
-            else:
+            if not zoho_course_id:
                 zoho_status = "no_course_id"
+            elif cfg.auto_enroll:
+                # Full auto: enrol if they're already a hub user, else invite to
+                # the hub (auto-enrolled on a later poll once they accept).
+                zoho_status = client.ensure_course_access(zoho_course_id, email, name)
+            else:
+                zoho_status = client.try_enroll_by_email(zoho_course_id, email)
         except Exception as exc:  # never block the buyer's access on a Zoho hiccup
             zoho_status = f"error: {exc}"
     notes.append(f"zoho={zoho_status}")

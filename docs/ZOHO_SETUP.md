@@ -111,52 +111,56 @@ These let the workflow call the one Zoho API that works: the course roster
 
 ---
 
-## Part C — Auto-provision new (non-Zoho) buyers *(optional)*
+## Part C — Fully-automatic enrolment of new buyers *(optional)*
 
 **The problem.** When someone *buys* the course but has never used Zoho, they
 have no Zoho account yet. Zoho Learn's add-members API takes an existing user id
-(Zuid), **not** an email, so a brand-new buyer can't be silently enrolled. By
-default the purchase hook (`enroll_from_purchase.py`) just emails them a sign-up
-link and they self-enrol.
+(Zuid), **not** an email, so a brand-new buyer can't be silently enrolled. And
+with the course set to **"Added Learners Only"** (recommended, so learners can't
+share), they can't self-enrol from a link either — they must be *added*.
 
-This part makes it **hands-off**: the hook *invites* the buyer to your portal
-automatically. Zoho emails them a one-click activation link; they set a password
-(or sign in with Google) once, and they're in. They're invited as a **MEMBER
-(learner)**, so they can take the course but **cannot share or re-invite anyone**
-— and because your portal is private, a forwarded link is useless to a
-non-member. (There is no way to give a private course to someone with *zero*
-action on their part: accessing a private course requires a login, and that one
-login per person is exactly what prevents sharing.)
+This part closes that gap **hands-off**. With `ZOHO_AUTO_ENROLL` on, the poller:
 
-**1. Add the scope to your refresh token.** The invite API needs
-`ZohoLearn.customportaluser.CREATE` *in addition to* your existing
-`ZohoLearn.course.ALL`. Regenerate the refresh token (Part A, step 2) with both
-scopes, space-separated:
+1. **Invites the buyer to your hub** (`aa-impact`) by email the moment they pay.
+   Zoho emails them a one-click activation link.
+2. The buyer **accepts once** (sets a password / Google sign-in) — unavoidable,
+   because a private course needs a login, and that per-person login is exactly
+   what stops sharing.
+3. On a **later hourly poll**, the poller sees they're now a hub user, resolves
+   their Zuid, and **adds them to the course as a MEMBER (learner)** — so they're
+   in, but can't share or re-invite anyone.
+
+Uses your existing **hub** (`ZOHO_PORTAL=aa-impact`) — there is **no custom-portal
+id to find**.
+
+**1. Add the scopes to your refresh token.** The hub APIs need
+`ZohoLearn.hubMember.CREATE` (invite) and `ZohoLearn.hubMember.READ` (resolve
+Zuid) *in addition to* your existing `ZohoLearn.course.ALL`. Regenerate the
+refresh token (Part A, step 2) with all three, **comma-separated**:
 ```
-ZohoLearn.course.ALL ZohoLearn.customportaluser.CREATE
+ZohoLearn.course.ALL,ZohoLearn.hubMember.CREATE,ZohoLearn.hubMember.READ
 ```
 Update the `ZOHO_REFRESH_TOKEN` secret with the new value.
 
-**2. Find your custom-portal id.** In Zoho Learn open your external/custom
-portal's user-management screen; the id appears in the invite/resend URLs
-(`.../portal/aa-impact/customportal/<THIS_ID>/invite/...`). If you're unsure,
-Zoho support can tell you. Add these **GitHub repository secrets**:
+**2. Turn it on.** Add a GitHub repository secret:
 
    | Secret | Value |
    | --- | --- |
-   | `ZOHO_CUSTOM_PORTAL_ID` | your custom-portal id |
-   | `ZOHO_INVITE_URL` | *(optional)* override, only if your DC/portal path differs from the default |
+   | `ZOHO_AUTO_ENROLL` | `true` |
+   | `ZOHO_HUB_INVITE_URL` / `ZOHO_HUB_MEMBERS_URL` | *(optional)* overrides, only if your DC/hub path differs from the default |
 
-**3. Complete the enrolment on acceptance.** Inviting creates the user; to drop
-them straight into the course when they accept, add a **group- or
-designation-based auto-enrol rule** in the course's *Add Members* settings so
-new portal users in that group are enrolled automatically. (Without the rule,
-they're in the portal but you'd enrol them into the course manually.)
+**3. How it behaves.** Every step is **best-effort and never blocks a buyer** —
+they still get the course-access email regardless. The poller's `zoho=…` status
+tells you where each buyer is:
 
-**4. How it behaves.** The invite is **best-effort and never blocks a buyer**:
-the purchase-hook status shows `zoho=invited` / `already_invited` on success, or
-`invite_unconfigured` (feature off) / `invite_error: …` otherwise — and in every
-non-success case the buyer still gets the course-access email as before. To
-test, run the **Wix enrolment** workflow (or `enroll_from_purchase.py`) for a
-throwaway email and check the `zoho=…` note in the log; leave
-`ZOHO_CUSTOM_PORTAL_ID` unset to keep the plain email-link behaviour.
+  | Status | Meaning |
+  | --- | --- |
+  | `invited` / `already_invited` | brand-new buyer invited to the hub (waiting on their acceptance) |
+  | `enrolled` | they'd accepted; now added to the course ✅ |
+  | `already_member` | already on the course |
+  | `invite_error: …` / `enroll_error: …` | surfaced, not fatal — buyer still emailed |
+
+**To test:** with a throwaway email, complete a purchase → run **Wix submission
+poll** and expect `zoho=invited`; accept the invite from that inbox → run the
+poll again and expect `zoho=enrolled`. Leave `ZOHO_AUTO_ENROLL` unset/`false` to
+keep the plain email-link behaviour.

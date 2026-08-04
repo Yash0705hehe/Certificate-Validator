@@ -65,7 +65,7 @@ Buyer pays on the "Payment" form  → Wix stores the submission (CONFIRMED)
    | `WIX_POLL_LOOKBACK_DAYS` | *(optional)* e.g. `30` to only scan recent submissions |
 
    The `SUPABASE_*`, `BREVO_*`, `COURSE_ACCESS_URLS`, and `ZOHO_*`
-   (incl. optional `ZOHO_CUSTOM_PORTAL_ID`) secrets are reused from the other
+   (incl. optional `ZOHO_AUTO_ENROLL`) secrets are reused from the other
    workflows.
 3. **Test it:** repo → **Actions → Wix submission poll → Run workflow** with
    **Dry run = true**. The log lists the paid buyers it *would* enrol (their
