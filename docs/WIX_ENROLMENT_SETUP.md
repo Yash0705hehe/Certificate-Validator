@@ -27,53 +27,54 @@ and how do I get their name + email."** Phase 2 adds the hands-off automation.
 
 ---
 
-## Email capture on THIS site (Wix Forms & Payments) — the poller
+## Email capture on THIS site (Wix Forms & Payments) — the Velo push
 
 > **Important:** aaimpactinc.com takes payment through a **Wix Forms & Payments**
-> form (the "Payment" form), **not** Pricing Plans or Wix Stores. The Velo
-> `events.js` in Phase 2 below listens for a *Pricing Plan* purchase event that
-> **never fires on this site** — that's why the buyer's email was never captured.
-> The mechanism that actually works here is the **poller** described in this
-> section. (Keep Phase 2 only as a reference for if you ever switch to Pricing
-> Plans.)
+> form (the "Payment" form), **not** Pricing Plans or Wix Stores.
+>
+> We first tried an **API poller** (`poll_wix_submissions.py`) that reads
+> submissions via the Wix Forms REST API — but this account **blocks API-key
+> reads of form submissions** (a genuine Wix `403` from the submission service,
+> even with an all-permissions key). So the poller can't work here and its
+> hourly schedule is disabled. The mechanism that **does** work is the **Velo
+> backend event** below: it reads the submission *natively inside Wix*, where
+> there's no API-key permission layer to hit.
 
-Because a Forms & Payments checkout gives us no purchase event to push the email,
-we **pull** it: a scheduled GitHub Action lists the paid form submissions (Wix
-marks a submission `CONFIRMED` once payment succeeds) and runs each buyer through
-the same enrolment pipeline.
+A paid submission is created `PENDING`/`PAYMENT_WAITING`, then flips to
+`CONFIRMED` when payment succeeds. A Velo backend event fires on that and pushes
+the buyer straight into the pipeline:
 
 ```
-Buyer pays on the "Payment" form  → Wix stores the submission (CONFIRMED)
-   → .github/workflows/wix-submission-poll.yml (hourly)
-       → poll_wix_submissions.py reads name + email + course
-           → process_purchase(): records in Supabase (idempotent),
-             best-effort Zoho enrol / invite, emails the course link
+Buyer pays on the "Payment" form  → submission becomes CONFIRMED
+   → backend/events.js (wixForms_onSubmissionUpdated) reads name + email
+       → GitHub repository_dispatch (event_type: wix_enrolment)
+           → "Wix enrolment" workflow → enroll_from_purchase.process_purchase():
+             records in Supabase (idempotent), invites/auto-enrols into the Zoho
+             hub course, emails the course link
 ```
 
-**Set it up (one API key, no code to paste into Wix):**
+**Set it up (paste one file + one Wix secret):**
 
-1. **Create a Wix API key.** https://manage.wix.com/account/api-keys →
-   **Generate API key** → give it the **Wix Forms → Read Submissions**
-   permission → copy the key.
-2. **Add GitHub repository secrets** (Settings → Secrets and variables → Actions):
+1. **Create a GitHub token** for the flow: GitHub → Settings → Developer
+   settings → **Personal access tokens → Fine-grained** → Repository access =
+   `Yash0705hehe/Certificate-Validator`, Permissions → **Contents: Read and
+   write** (this is what allows `repository_dispatch`). Copy the token.
+2. **Wix Dashboard → Settings → Secrets Manager** → add a secret named
+   **`GITHUB_DISPATCH_TOKEN`** = that token.
+3. **Add the Velo code:** in the Wix Editor turn on **Dev Mode**, open
+   **Backend → `events.js`** (create it if missing), and paste the contents of
+   [`wix/events.js`](../wix/events.js) from this repo. **Publish** the site.
+4. **GitHub secrets:** the "Wix enrolment" workflow reuses the existing
+   `SUPABASE_*`, `BREVO_*`, `COURSE_ACCESS_URLS`, and `ZOHO_*` secrets (incl.
+   `ZOHO_AUTO_ENROLL` for hands-off Zoho enrolment).
+5. **Test it:** make one completed purchase on the Payment form. Within a
+   minute a **Wix enrolment** run appears under **Actions**, the buyer lands in
+   the Supabase `enrolments` table, and (with `ZOHO_AUTO_ENROLL`) they're invited
+   to the hub. To test without paying, use **Actions → Wix enrolment → Run
+   workflow** with a name/email and **Dry run**.
 
-   | Secret | Value |
-   | --- | --- |
-   | `WIX_API_KEY` | the key from step 1 |
-   | `WIX_SITE_ID` | `bc6a0452-5643-4224-a190-e0c157754f82` |
-   | `WIX_FORM_COURSE_MAP` | `{"a2b557bc-9d1e-4125-bf90-9224c5c07978": "GHG"}` |
-   | `WIX_POLL_LOOKBACK_DAYS` | *(optional)* e.g. `30` to only scan recent submissions |
-
-   The `SUPABASE_*`, `BREVO_*`, `COURSE_ACCESS_URLS`, and `ZOHO_*`
-   (incl. optional `ZOHO_AUTO_ENROLL`) secrets are reused from the other
-   workflows.
-3. **Test it:** repo → **Actions → Wix submission poll → Run workflow** with
-   **Dry run = true**. The log lists the paid buyers it *would* enrol (their
-   name + email resolved from the form). Untick Dry run to actually record +
-   enrol + email them. After that it runs **hourly** on its own.
-
-To sell another course later, add its paid form and extend `WIX_FORM_COURSE_MAP`
-with `"<that form id>": "Nature"` (find the form id via the same Wix Forms list).
+To sell another course later, add its paid form and extend the `FORM_TO_COURSE`
+map at the top of `wix/events.js` with `"<that form id>": "Nature"`.
 
 ---
 
@@ -106,9 +107,10 @@ there automatically — that's your list.
 
 ## Phase 2 — Velo → GitHub (reference only; not used on this site)
 
-> **This site uses the poller above, not this.** The Velo handler below is the
-> *Pricing Plans* purchase event and does **not** fire on a Wix Forms & Payments
-> checkout. Keep this section only if you migrate the course to Pricing Plans.
+> **This site uses the Velo Forms event above (`wix/events.js`), not this.** The
+> handler below is the *Pricing Plans* purchase event and does **not** fire on a
+> Wix Forms & Payments checkout. Keep this section only if you migrate the course
+> to Pricing Plans.
 
 ### Auto-enrol + auto-certificate (Velo → GitHub)
 

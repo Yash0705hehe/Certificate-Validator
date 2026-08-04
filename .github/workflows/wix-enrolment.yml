@@ -61,6 +61,7 @@ jobs:
           ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
           ZOHO_PORTAL: ${{ secrets.ZOHO_PORTAL }}
           ZOHO_COURSE_MAP: ${{ secrets.ZOHO_COURSE_MAP }}
+          ZOHO_AUTO_ENROLL: ${{ secrets.ZOHO_AUTO_ENROLL }}
           # repository_dispatch payload OR manual inputs:
           NAME: ${{ github.event.client_payload.name || github.event.inputs.name }}
           EMAIL: ${{ github.event.client_payload.email || github.event.inputs.email }}

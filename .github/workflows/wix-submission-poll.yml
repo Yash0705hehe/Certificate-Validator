@@ -7,10 +7,11 @@ name: Wix submission poll
 # invite, email the course link). Idempotent per (email, course), so re-running
 # never double-enrols.
 #
-# Runs hourly, and on demand for testing (use Dry run first).
+# SUPERSEDED by the Velo push (backend/events.js → wix_enrolment): this site's
+# Wix account blocks API-key reads of form submissions (403), so the scheduled
+# poll can't work here. The hourly schedule is therefore disabled to avoid noise;
+# the job is kept for manual runs in case submissions-API access is ever granted.
 on:
-  schedule:
-    - cron: "17 * * * *" # hourly at :17 (off the top of the hour)
   workflow_dispatch:
     inputs:
       dry_run:
