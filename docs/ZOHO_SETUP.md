@@ -119,16 +119,20 @@ have no Zoho account yet. Zoho Learn's add-members API takes an existing user id
 with the course set to **"Added Learners Only"** (recommended, so learners can't
 share), they can't self-enrol from a link either — they must be *added*.
 
-This part closes that gap **hands-off**. With `ZOHO_AUTO_ENROLL` on, the poller:
+This part closes that gap **hands-off**. With `ZOHO_AUTO_ENROLL` on, two jobs
+share the work:
 
-1. **Invites the buyer to your hub** (`aa-impact`) by email the moment they pay.
-   Zoho emails them a one-click activation link.
+1. **At purchase** the **Wix enrolment** hook invites the buyer to your hub
+   (`aa-impact`) by email. Zoho emails them a one-click activation link.
 2. The buyer **accepts once** (sets a password / Google sign-in) — unavoidable,
    because a private course needs a login, and that per-person login is exactly
    what stops sharing.
-3. On a **later hourly poll**, the poller sees they're now a hub user, resolves
-   their Zuid, and **adds them to the course as a MEMBER (learner)** — so they're
-   in, but can't share or re-invite anyone.
+3. On its next run the scheduled **Zoho enrolment reconcile** job
+   (`.github/workflows/zoho-reconcile.yml`, every 2 hours) sees they're now a hub
+   user, resolves their Zuid, and **adds them to the course as a MEMBER
+   (learner)** — so they're in, but can't share or re-invite anyone. It reads the
+   Supabase `enrolments` table (not the blocked Wix submissions API), so any buyer
+   still marked `zoho_enrolled=false` is retried every run until they've accepted.
 
 Uses your existing **hub** (`ZOHO_PORTAL=aa-impact`) — there is **no custom-portal
 id to find**.
@@ -160,7 +164,8 @@ tells you where each buyer is:
   | `already_member` | already on the course |
   | `invite_error: …` / `enroll_error: …` | surfaced, not fatal — buyer still emailed |
 
-**To test:** with a throwaway email, complete a purchase → run **Wix submission
-poll** and expect `zoho=invited`; accept the invite from that inbox → run the
-poll again and expect `zoho=enrolled`. Leave `ZOHO_AUTO_ENROLL` unset/`false` to
-keep the plain email-link behaviour.
+**To test:** with a throwaway email, complete a purchase → the **Wix enrolment**
+run records the buyer and reports `zoho=invited`; accept the invite from that
+inbox → run **Actions → Zoho enrolment reconcile → Run workflow** (or wait for
+the 2-hourly schedule) and expect `enrolled=1`. Leave `ZOHO_AUTO_ENROLL`
+unset/`false` to keep the plain email-link behaviour.
