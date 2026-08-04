@@ -1,0 +1,54 @@
+name: Zoho enrolment reconcile
+
+# The purchase hook (Wix enrolment) can only *invite* a brand-new buyer to the
+# Zoho hub — with the course set to "Added Learners Only" they must then be
+# *added* to the course, which is only possible once they accept the invite and
+# become a hub user with a resolvable Zuid. That acceptance happens later, out of
+# band, so this scheduled job closes the loop: it reads every Supabase enrolment
+# not yet marked zoho_enrolled and re-runs ensure_course_access, which adds them
+# the moment their acceptance makes them resolvable. Idempotent and best-effort —
+# a buyer who hasn't accepted yet is simply retried on the next run.
+on:
+  schedule:
+    - cron: "17 */2 * * *" # every 2 hours (offset to dodge the top-of-hour rush)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (report who would be enrolled; no writes/enrolments)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: zoho-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Reconcile pending enrolments into Zoho
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ZOHO_ACCOUNTS_DOMAIN: ${{ secrets.ZOHO_ACCOUNTS_DOMAIN }}
+          ZOHO_API_DOMAIN: ${{ secrets.ZOHO_API_DOMAIN }}
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          ZOHO_PORTAL: ${{ secrets.ZOHO_PORTAL }}
+          ZOHO_COURSE_MAP: ${{ secrets.ZOHO_COURSE_MAP }}
+          ZOHO_AUTO_ENROLL: ${{ secrets.ZOHO_AUTO_ENROLL }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          ARGS=()
+          if [ "$DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
+          python reconcile_enrolments.py "${ARGS[@]}"

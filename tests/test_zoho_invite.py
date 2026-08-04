@@ -46,8 +46,9 @@ def test_invite_to_hub_posts_expected_request():
         captured["url"] = req.full_url
         captured["method"] = req.get_method()
         captured["auth"] = req.get_header("Authorization")
-        captured["body"] = json.loads(req.data.decode())
-        return _Resp(b'{"STATUS":"OK"}')
+        captured["ctype"] = req.get_header("Content-type")
+        captured["raw"] = req.data.decode()
+        return _Resp(b'{"status":"success"}')
 
     with mock.patch("certissuer.zoho.urllib.request.urlopen", side_effect=fake_urlopen):
         assert client.invite_to_hub("buyer@example.com", "Ravi Kumar") == "invited"
@@ -55,9 +56,20 @@ def test_invite_to_hub_posts_expected_request():
     assert captured["url"] == "https://learn.zoho.in/learn/api/v1/hubs/aa-impact/invite"
     assert captured["method"] == "POST"
     assert captured["auth"] == "Zoho-oauthtoken tok"
-    assert captured["body"] == {
-        "userlist": [{"emailId": "buyer@example.com", "fname": "Ravi", "lname": "Kumar"}]
-    }
+    # form-encoded: userlist=<json array string>
+    assert captured["ctype"] == "application/x-www-form-urlencoded"
+    import urllib.parse
+
+    userlist = json.loads(urllib.parse.parse_qs(captured["raw"])["userlist"][0])
+    assert userlist == [{"emailId": "buyer@example.com", "fname": "Ravi", "lname": "Kumar"}]
+
+
+def test_invite_to_hub_failure_status_is_surfaced():
+    client = ZohoClient(_cfg())
+    client._token = "tok"
+    body = b'{"reason":"Parameter userlist should not be empty","status":"failure"}'
+    with mock.patch("certissuer.zoho.urllib.request.urlopen", return_value=_Resp(body)):
+        assert client.invite_to_hub("buyer@example.com").startswith("invite_failed:")
 
 
 def test_invite_to_hub_duplicate_is_already_invited():

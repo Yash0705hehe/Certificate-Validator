@@ -225,18 +225,33 @@ class ZohoClient:
             f"https://{self.cfg.api_domain}/learn/api/v1/portal/"
             f"{self.cfg.portal}/course/{course_id}/member"
         )
-        payload = json.dumps(
-            {"userIds": [str(u) for u in user_ids], "role": role}
-        ).encode()
+        # Confirmed working shape: JSON body {"userIds":[zuid,...],"role":...}
+        # (unlike the invite, which is form-encoded). Success looks like
+        # {"STATUS":"OK","members":[{"id":...,"status":"ACTIVE",...}]}.
+        ids = [str(u) for u in user_ids]
+        payload = json.dumps({"userIds": ids, "role": role}).encode()
+        print(f"[zoho] enroll_member POST {url} userIds={ids} role={role}", flush=True)
         req = urllib.request.Request(url, data=payload, method="POST")
         req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
         req.add_header("Content-Type", "application/json")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
-                return json.loads(resp.read().decode())
+                body = resp.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
+            print(f"[zoho] enroll_member HTTPError {e.code}: {detail[:400]}", flush=True)
             raise RuntimeError(f"Zoho API {e.code} adding members: {detail}") from None
+        print(f"[zoho] enroll_member -> {body[:400]}", flush=True)
+        try:
+            parsed = json.loads(body)
+        except Exception:
+            parsed = {"raw": body}
+        if isinstance(parsed, dict) and (
+            str(parsed.get("status", "")).lower() == "failure"
+            or str(parsed.get("result", "")).lower() == "failure"
+        ):
+            raise RuntimeError(f"Zoho add-members failed: {body[:300]}")
+        return parsed
 
     def try_enroll_by_email(self, course_id: str, email: str) -> str:
         """Best-effort enrol an existing portal user by email.
@@ -284,23 +299,41 @@ class ZohoClient:
             user["fname"] = first
         if last:
             user["lname"] = last
-        payload = json.dumps({"userlist": [user]}).encode()
-        req = urllib.request.Request(
-            self._hub_url("invite", "ZOHO_HUB_INVITE_URL"), data=payload, method="POST"
-        )
+        url = self._hub_url("invite", "ZOHO_HUB_INVITE_URL")
+        # Zoho Learn's invite API is form-encoded, with `userlist` holding a JSON
+        # array *string* — NOT a JSON body. A JSON body makes Zoho see userlist as
+        # empty ("Parameter userlist should not be empty").
+        userlist = json.dumps([user])
+        data = urllib.parse.urlencode({"userlist": userlist}).encode()
+        print(f"[zoho] invite_to_hub POST {url} userlist={userlist}", flush=True)
+        req = urllib.request.Request(url, data=data, method="POST")
         req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
-        req.add_header("Content-Type", "application/json")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
-                resp.read()
+                status = getattr(resp, "status", None) or getattr(resp, "code", "?")
+                body = resp.read().decode("utf-8", "replace")
+            print(f"[zoho] invite_to_hub -> HTTP {status}: {body[:900]}", flush=True)
+            try:
+                parsed = json.loads(body)
+            except Exception:
+                parsed = {}
+            # Zoho can return 2xx with {"status":"failure","reason":...}.
+            if isinstance(parsed, dict) and str(parsed.get("status", "")).lower() == "failure":
+                reason = str(parsed.get("reason") or body[:150])
+                if "already" in reason.lower() or "exist" in reason.lower():
+                    return "already_invited"
+                return f"invite_failed: {reason}"
             return "invited"
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
+            print(f"[zoho] invite_to_hub HTTPError {e.code}: {detail[:900]}", flush=True)
             low = detail.lower()
             if e.code == 409 or "already" in low or "exist" in low:
                 return "already_invited"
             return f"invite_error: {e.code} {detail[:180]}"
         except Exception as e:  # network/DNS/etc — must never block the buyer
+            print(f"[zoho] invite_to_hub exception: {e}", flush=True)
             return f"invite_error: {e}"
 
     def hub_member_zuid(self, email: str) -> str | None:
@@ -313,18 +346,35 @@ class ZohoClient:
         target = (email or "").strip().lower()
         if not target:
             return None
-        req = urllib.request.Request(
-            self._hub_url("member", "ZOHO_HUB_MEMBERS_URL"), method="GET"
+        override = os.environ.get("ZOHO_HUB_MEMBERS_URL")
+        base = f"https://{self.cfg.api_domain}/learn/api/v1/hubs/{self.cfg.portal}"
+        candidates = (
+            [override]
+            if override
+            else [f"{base}/members", f"{base}/users", f"{base}/user", f"{base}/member"]
         )
-        req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                body = json.loads(resp.read().decode() or "{}")
-        except Exception:
+        body = None
+        for url in candidates:
+            req = urllib.request.Request(url, method="GET")
+            req.add_header("Authorization", f"Zoho-oauthtoken {self.access_token()}")
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    raw = resp.read().decode() or "{}"
+                print(f"[zoho] hub_member_zuid GET {url} -> {raw[:400]}", flush=True)
+                body = json.loads(raw)
+                break
+            except urllib.error.HTTPError as e:
+                print(f"[zoho] hub_member_zuid GET {url} -> HTTP {e.code}", flush=True)
+            except Exception as e:
+                print(f"[zoho] hub_member_zuid GET {url} error: {e}", flush=True)
+        if body is None:
             return None
         for member in _iter_member_dicts(body):
             if (member.get("emailId") or member.get("email") or "").strip().lower() == target:
-                return self._member_zuid(member)
+                zuid = self._member_zuid(member)
+                print(f"[zoho] hub_member_zuid({target}) -> {zuid}", flush=True)
+                return zuid
+        print(f"[zoho] hub_member_zuid({target}) -> not found in members list", flush=True)
         return None
 
     def ensure_course_access(self, course_id: str, email: str, name: str | None = None) -> str:
