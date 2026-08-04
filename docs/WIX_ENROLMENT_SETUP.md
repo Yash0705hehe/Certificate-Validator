@@ -27,6 +27,56 @@ and how do I get their name + email."** Phase 2 adds the hands-off automation.
 
 ---
 
+## Email capture on THIS site (Wix Forms & Payments) — the poller
+
+> **Important:** aaimpactinc.com takes payment through a **Wix Forms & Payments**
+> form (the "Payment" form), **not** Pricing Plans or Wix Stores. The Velo
+> `events.js` in Phase 2 below listens for a *Pricing Plan* purchase event that
+> **never fires on this site** — that's why the buyer's email was never captured.
+> The mechanism that actually works here is the **poller** described in this
+> section. (Keep Phase 2 only as a reference for if you ever switch to Pricing
+> Plans.)
+
+Because a Forms & Payments checkout gives us no purchase event to push the email,
+we **pull** it: a scheduled GitHub Action lists the paid form submissions (Wix
+marks a submission `CONFIRMED` once payment succeeds) and runs each buyer through
+the same enrolment pipeline.
+
+```
+Buyer pays on the "Payment" form  → Wix stores the submission (CONFIRMED)
+   → .github/workflows/wix-submission-poll.yml (hourly)
+       → poll_wix_submissions.py reads name + email + course
+           → process_purchase(): records in Supabase (idempotent),
+             best-effort Zoho enrol / invite, emails the course link
+```
+
+**Set it up (one API key, no code to paste into Wix):**
+
+1. **Create a Wix API key.** https://manage.wix.com/account/api-keys →
+   **Generate API key** → give it the **Wix Forms → Read Submissions**
+   permission → copy the key.
+2. **Add GitHub repository secrets** (Settings → Secrets and variables → Actions):
+
+   | Secret | Value |
+   | --- | --- |
+   | `WIX_API_KEY` | the key from step 1 |
+   | `WIX_SITE_ID` | `bc6a0452-5643-4224-a190-e0c157754f82` |
+   | `WIX_FORM_COURSE_MAP` | `{"a2b557bc-9d1e-4125-bf90-9224c5c07978": "GHG"}` |
+   | `WIX_POLL_LOOKBACK_DAYS` | *(optional)* e.g. `30` to only scan recent submissions |
+
+   The `SUPABASE_*`, `BREVO_*`, `COURSE_ACCESS_URLS`, and `ZOHO_*`
+   (incl. optional `ZOHO_CUSTOM_PORTAL_ID`) secrets are reused from the other
+   workflows.
+3. **Test it:** repo → **Actions → Wix submission poll → Run workflow** with
+   **Dry run = true**. The log lists the paid buyers it *would* enrol (their
+   name + email resolved from the form). Untick Dry run to actually record +
+   enrol + email them. After that it runs **hourly** on its own.
+
+To sell another course later, add its paid form and extend `WIX_FORM_COURSE_MAP`
+with `"<that form id>": "Nature"` (find the form id via the same Wix Forms list).
+
+---
+
 ## Phase 1 — Take real payments and capture buyers (no code)
 
 Pick **one** checkout style on aaimpactinc.com:
@@ -54,7 +104,13 @@ there automatically — that's your list.
 
 ---
 
-## Phase 2 — Auto-enrol + auto-certificate (Velo → GitHub)
+## Phase 2 — Velo → GitHub (reference only; not used on this site)
+
+> **This site uses the poller above, not this.** The Velo handler below is the
+> *Pricing Plans* purchase event and does **not** fire on a Wix Forms & Payments
+> checkout. Keep this section only if you migrate the course to Pricing Plans.
+
+### Auto-enrol + auto-certificate (Velo → GitHub)
 
 ### 2.1 One-time secrets
 
@@ -182,6 +238,11 @@ export async function wixPricingPlans_onOrderPurchased(event) {
 
 ## Notes & limits
 
+- **Email capture is a pull, not a push.** This site's Forms & Payments checkout
+  gives no purchase event, so `wix-submission-poll.yml` polls the Wix Forms API
+  hourly for `CONFIRMED` (paid) submissions. A buyer therefore gets enrolled
+  within ~1 hour of paying, not instantly — fine against the "access within 3
+  working days" promise. Lower the cron in the workflow if you want it faster.
 - **Zoho auto-enrol is best-effort.** Zoho Learn's add-member API takes an
   existing Zoho user id, not an email, so a brand-new buyer can't be added by
   API. Anyone who is already a Zoho user is detected and reported as already

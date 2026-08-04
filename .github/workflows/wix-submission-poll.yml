@@ -1,0 +1,78 @@
+name: Wix submission poll
+
+# Captures paid buyers from the Wix "Forms & Payments" checkout. The site has no
+# Pricing Plans / Stores purchase event to push us the email, so we PULL: this
+# job lists CONFIRMED (paid) form submissions via the Wix Forms API and runs each
+# through the enrolment pipeline (record in Supabase, best-effort Zoho enrol /
+# invite, email the course link). Idempotent per (email, course), so re-running
+# never double-enrols.
+#
+# Runs hourly, and on demand for testing (use Dry run first).
+on:
+  schedule:
+    - cron: "17 * * * *" # hourly at :17 (off the top of the hour)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (list who would be enrolled; no writes/emails)"
+        required: false
+        default: true
+        type: boolean
+      no_email:
+        description: "Record/enrol but do not email"
+        required: false
+        default: false
+        type: boolean
+      no_enroll:
+        description: "Skip the Zoho enrol/invite attempt"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: wix-submission-poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Poll Wix submissions and enrol buyers
+        env:
+          # Wix Forms (email capture)
+          WIX_API_KEY: ${{ secrets.WIX_API_KEY }}
+          WIX_SITE_ID: ${{ secrets.WIX_SITE_ID }}
+          WIX_FORM_COURSE_MAP: ${{ secrets.WIX_FORM_COURSE_MAP }}
+          WIX_POLL_LOOKBACK_DAYS: ${{ secrets.WIX_POLL_LOOKBACK_DAYS }}
+          # Downstream pipeline (same secrets the other workflows use)
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_FROM: ${{ secrets.BREVO_FROM }}
+          COURSE_ACCESS_URLS: ${{ secrets.COURSE_ACCESS_URLS }}
+          ZOHO_ACCOUNTS_DOMAIN: ${{ secrets.ZOHO_ACCOUNTS_DOMAIN }}
+          ZOHO_API_DOMAIN: ${{ secrets.ZOHO_API_DOMAIN }}
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          ZOHO_PORTAL: ${{ secrets.ZOHO_PORTAL }}
+          ZOHO_COURSE_MAP: ${{ secrets.ZOHO_COURSE_MAP }}
+          ZOHO_CUSTOM_PORTAL_ID: ${{ secrets.ZOHO_CUSTOM_PORTAL_ID }}
+          # Manual-run toggles (schedule runs with all-false defaults)
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          NO_EMAIL: ${{ github.event.inputs.no_email }}
+          NO_ENROLL: ${{ github.event.inputs.no_enroll }}
+        run: |
+          ARGS=()
+          if [ "$DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
+          if [ "$NO_EMAIL" = "true" ]; then ARGS+=(--no-email); fi
+          if [ "$NO_ENROLL" = "true" ]; then ARGS+=(--no-enroll); fi
+          python poll_wix_submissions.py "${ARGS[@]}"
