@@ -84,33 +84,41 @@ def compose(name: str, certificate_id: str, course: str, completed_display: str)
 
 
 def compose_enrolment(name: str, course: str, course_url: str):
-    """Return (subject, html) for the post-payment welcome / course-access email."""
+    """Return (subject, html) for the post-payment welcome / course-access email.
+
+    This is the branded email that *replaces* Zoho's own hub-invite email in
+    self-signup mode (see certissuer.zoho — ZOHO_SELF_SIGNUP): the button links
+    to the hub sign-up page, and once the buyer creates their account the
+    reconcile job adds them to the course automatically.
+    """
     course_label = {
         "GHG": "GHG Accounting Course",
         "Nature": "Nature Course",
         "GHG_Nature_Bundle": "GHG + Nature Bundle",
     }.get(course, course)
-    subject = f"Your {course_label} enrolment — access within 3 working days"
+    subject = f"Start your {course_label} — AA Impact"
     button = (
         f'<a href="{course_url}" style="display:inline-block;background:#17242e;'
         'color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:6px;'
-        f'font-weight:bold">Go to the course</a>'
+        f'font-weight:bold">Set up my course access</a>'
         if course_url
         else ""
     )
     html = f"""\
 <div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#17242e;line-height:1.6">
   <p>Dear {name},</p>
-  <p>Thank you for enrolling in the <strong>{course_label}</strong> with AA Impact.
-  Your payment has been received.</p>
-  <p>To set up your access, use the button below to open the course and sign up /
-  request enrolment using <em>this</em> email address — the same one you paid
-  with, so your completion is recorded against you.</p>
+  <p>Thank you for purchasing the <strong>{course_label}</strong> with AA Impact —
+  your payment is confirmed.</p>
+  <p>To get started, set up your learning account using <strong>this same email
+  address</strong> (the one you paid with), so your progress and certificate are
+  recorded against you:</p>
   <p style="margin:22px 0">{button}</p>
-  <p>Our team reviews new enrolments, so you'll receive full access to the course
-  <strong>within 3 working days</strong>. We'll confirm once your access is live.</p>
-  <p>When you complete the course, your verified AA Impact certificate is issued
-  and emailed to you automatically — no extra step needed.</p>
+  <p>Once you've created your account, we'll add you to the course automatically —
+  usually <strong>within 15 minutes</strong>. You'll find it under
+  <strong>My Courses</strong> when you log in.</p>
+  <p>When you finish, your official AA Impact certificate is issued and emailed to
+  you automatically — nothing else to do.</p>
+  <p>Questions? Just reply to this email.</p>
   <p style="color:#6b7280;font-size:13px">AA Impact Inc. &middot; www.aaimpactinc.com</p>
 </div>"""
     return subject, html

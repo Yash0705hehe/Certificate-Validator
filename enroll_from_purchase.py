@@ -8,8 +8,10 @@ aaimpactinc.com site) whenever someone completes a course purchase. It:
   2. best-effort Zoho enrolment. With ZOHO_AUTO_ENROLL on, an existing hub user
      is added straight to the course, while a brand-new buyer is invited to the
      hub (Zoho's add-member API needs an existing Zoho id) and auto-enrolled on a
-     later poll once they accept. With it off, only existing course members are
-     detected,
+     later poll once they accept. With ZOHO_SELF_SIGNUP on, Zoho's invite is
+     skipped entirely — the buyer signs up from our own branded email (below) and
+     is enrolled on a later poll. With ZOHO_AUTO_ENROLL off, only existing course
+     members are detected,
   3. emails them their Zoho course-access link (the welcome note; also the
      self-serve fallback when ZOHO_AUTO_ENROLL is off).
 

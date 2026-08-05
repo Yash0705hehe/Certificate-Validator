@@ -4,13 +4,17 @@ name: Zoho enrolment reconcile
 # Zoho hub — with the course set to "Added Learners Only" they must then be
 # *added* to the course, which is only possible once they accept the invite and
 # become a hub user with a resolvable Zuid. That acceptance happens later, out of
-# band, so this scheduled job closes the loop: it reads every Supabase enrolment
-# not yet marked zoho_enrolled and re-runs ensure_course_access, which adds them
-# the moment their acceptance makes them resolvable. Idempotent and best-effort —
-# a buyer who hasn't accepted yet is simply retried on the next run.
+# band (they sign up from our branded email), so this scheduled job closes the
+# loop: it reads every Supabase enrolment not yet marked zoho_enrolled and re-runs
+# ensure_course_access, which adds them the moment their signup makes them
+# resolvable. Idempotent and best-effort — a buyer who hasn't signed up yet is
+# simply retried on the next run.
 on:
   schedule:
-    - cron: "17 */2 * * *" # every 2 hours (offset to dodge the top-of-hour rush)
+    # Every 15 minutes, so an accepted buyer is in the course within ~15 min of
+    # signing up (the buyer-facing email promises "within 15 minutes"). GitHub
+    # may batch scheduled runs under load, but this comfortably holds that.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:

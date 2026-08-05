@@ -13,7 +13,7 @@ from unittest import mock
 from certissuer.zoho import CourseTarget, ZohoClient, ZohoConfig
 
 
-def _cfg(auto_enroll=True):
+def _cfg(auto_enroll=True, self_signup=False):
     return ZohoConfig(
         accounts_domain="accounts.zoho.in",
         api_domain="learn.zoho.in",
@@ -23,6 +23,7 @@ def _cfg(auto_enroll=True):
         portal="aa-impact",
         course_map={"ghg accounting course": CourseTarget("111", "GHG")},
         auto_enroll=auto_enroll,
+        self_signup=self_signup,
     )
 
 
@@ -149,6 +150,28 @@ def test_ensure_invites_brand_new_buyer():
         invite.assert_called_once_with("buyer@example.com", "Ravi")
 
 
+def test_ensure_self_signup_does_not_invite():
+    # In self-signup mode a brand-new buyer is NOT sent Zoho's invite (its email
+    # isn't editable) — they get our own email and are picked up once they sign up.
+    client = ZohoClient(_cfg(self_signup=True))
+    with mock.patch.object(client, "find_member", return_value=None), mock.patch.object(
+        client, "hub_member_zuid", return_value=None
+    ), mock.patch.object(client, "invite_to_hub") as invite:
+        assert client.ensure_course_access("111", "buyer@example.com", "Ravi") == "awaiting_signup"
+        invite.assert_not_called()
+
+
+def test_ensure_self_signup_still_enrolls_existing_hub_user():
+    # A repeat buyer who already has a hub login is added to the course right away,
+    # even in self-signup mode.
+    client = ZohoClient(_cfg(self_signup=True))
+    with mock.patch.object(client, "find_member", return_value=None), mock.patch.object(
+        client, "hub_member_zuid", return_value="zuid-9"
+    ), mock.patch.object(client, "enroll_member", return_value={}) as enroll:
+        assert client.ensure_course_access("111", "buyer@example.com") == "enrolled"
+        enroll.assert_called_once_with("111", ["zuid-9"], role="MEMBER")
+
+
 def test_from_env_reads_auto_enroll(monkeypatch):
     for k, v in {
         "ZOHO_CLIENT_ID": "x",
@@ -162,3 +185,18 @@ def test_from_env_reads_auto_enroll(monkeypatch):
     assert ZohoConfig.from_env().auto_enroll is True
     monkeypatch.setenv("ZOHO_AUTO_ENROLL", "no")
     assert ZohoConfig.from_env().auto_enroll is False
+
+
+def test_from_env_reads_self_signup(monkeypatch):
+    for k, v in {
+        "ZOHO_CLIENT_ID": "x",
+        "ZOHO_CLIENT_SECRET": "y",
+        "ZOHO_REFRESH_TOKEN": "z",
+        "ZOHO_PORTAL": "aa-impact",
+        "ZOHO_COURSE_MAP": '{"GHG Accounting Course": {"id":"111","course":"GHG"}}',
+    }.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("ZOHO_SELF_SIGNUP", raising=False)
+    assert ZohoConfig.from_env().self_signup is False
+    monkeypatch.setenv("ZOHO_SELF_SIGNUP", "true")
+    assert ZohoConfig.from_env().self_signup is True
