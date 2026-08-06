@@ -85,6 +85,12 @@ class ZohoConfig:
     # + ZohoLearn.hubMember.READ. When false, ensure_course_access only reports
     # membership and the caller falls back to the course-access email.
     auto_enroll: bool = False
+    # When true, we DON'T send Zoho's own hub invite (whose email content we
+    # can't edit). Instead the buyer receives our branded enrolment email (see
+    # certissuer.emailer.compose_enrolment) with a link to self-sign-up to the
+    # hub; once they do, the reconcile job resolves their Zuid and adds them to
+    # the course. Requires "external/self signup" enabled on the Zoho hub.
+    self_signup: bool = False
 
     @classmethod
     def from_env(cls) -> "ZohoConfig":
@@ -121,6 +127,8 @@ class ZohoConfig:
             portal=os.environ["ZOHO_PORTAL"],
             course_map=course_map,
             auto_enroll=(os.environ.get("ZOHO_AUTO_ENROLL") or "").strip().lower()
+            in ("1", "true", "yes", "on"),
+            self_signup=(os.environ.get("ZOHO_SELF_SIGNUP") or "").strip().lower()
             in ("1", "true", "yes", "on"),
         )
 
@@ -386,6 +394,9 @@ class ZohoClient:
           ``"invited"`` / ``"already_invited"`` — brand-new; invited to the hub
                                  (they'll be auto-enrolled on a later poll once
                                  they accept),
+          ``"awaiting_signup"`` — self-signup mode: no Zoho invite is sent; the
+                                 buyer signs up from our own email and is enrolled
+                                 on a later poll once they do,
           ``"enroll_error: ..."`` / ``"invite_error: ..."`` — surfaced, not raised.
         """
         if self.find_member(course_id, email):
@@ -397,6 +408,12 @@ class ZohoClient:
                 return "enrolled"
             except Exception as e:
                 return f"enroll_error: {e}"
+        # Not a hub user yet. In self-signup mode we deliberately do NOT fire
+        # Zoho's invite (its email content isn't editable) — the buyer gets our
+        # own branded email inviting them to self-sign-up, and is picked up here
+        # on a later poll once they have.
+        if self.cfg.self_signup:
+            return "awaiting_signup"
         return self.invite_to_hub(email, name)
 
 

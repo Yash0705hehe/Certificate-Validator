@@ -128,8 +128,8 @@ share the work:
    because a private course needs a login, and that per-person login is exactly
    what stops sharing.
 3. On its next run the scheduled **Zoho enrolment reconcile** job
-   (`.github/workflows/zoho-reconcile.yml`, every 2 hours) sees they're now a hub
-   user, resolves their Zuid, and **adds them to the course as a MEMBER
+   (`.github/workflows/zoho-reconcile.yml`, **every 15 minutes**) sees they're now
+   a hub user, resolves their Zuid, and **adds them to the course as a MEMBER
    (learner)** — so they're in, but can't share or re-invite anyone. It reads the
    Supabase `enrolments` table (not the blocked Wix submissions API), so any buyer
    still marked `zoho_enrolled=false` is retried every run until they've accepted.
@@ -153,6 +153,31 @@ Update the `ZOHO_REFRESH_TOKEN` secret with the new value.
    | `ZOHO_AUTO_ENROLL` | `true` |
    | `ZOHO_HUB_INVITE_URL` / `ZOHO_HUB_MEMBERS_URL` | *(optional)* overrides, only if your DC/hub path differs from the default |
 
+### Choosing which email the buyer gets
+
+By default, step 1 fires **Zoho's own hub-invite email** — whose wording you
+**cannot edit** in Zoho Learn. If you'd rather send your **own branded email**
+(so you control the subject and content), turn on **self-signup mode**:
+
+  | Secret | Value |
+  | --- | --- |
+  | `ZOHO_SELF_SIGNUP` | `true` |
+  | `COURSE_ACCESS_URLS` | JSON map of course → your hub **sign-up** link, e.g. `{"GHG": "https://learn.zoho.in/portal/aa-impact/signup"}` |
+
+Then, in **Zoho Learn → your hub → Users**, enable **external / self sign-up** so
+buyers can create their own account from that link. With `ZOHO_SELF_SIGNUP=true`:
+
+- We **do not** send Zoho's invite. Instead the buyer gets our email
+  (`certissuer/emailer.py → compose_enrolment`, *"Start your … course"*) with a
+  **Set up my course access** button pointing at your sign-up link.
+- The buyer signs up with their paid email, and the reconcile job adds them to
+  the course exactly as above — status `awaiting_signup` until they do, then
+  `enrolled`.
+- Sharing is still blocked: it's a private, **"Added Learners Only"** course, and
+  only buyers we've recorded ever get added.
+
+Leave `ZOHO_SELF_SIGNUP` unset to keep Zoho's default invite email.
+
 **3. How it behaves.** Every step is **best-effort and never blocks a buyer** —
 they still get the course-access email regardless. The poller's `zoho=…` status
 tells you where each buyer is:
@@ -160,12 +185,14 @@ tells you where each buyer is:
   | Status | Meaning |
   | --- | --- |
   | `invited` / `already_invited` | brand-new buyer invited to the hub (waiting on their acceptance) |
-  | `enrolled` | they'd accepted; now added to the course ✅ |
+  | `awaiting_signup` | self-signup mode — no Zoho invite sent; waiting for the buyer to sign up from our email |
+  | `enrolled` | they'd accepted / signed up; now added to the course ✅ |
   | `already_member` | already on the course |
   | `invite_error: …` / `enroll_error: …` | surfaced, not fatal — buyer still emailed |
 
 **To test:** with a throwaway email, complete a purchase → the **Wix enrolment**
-run records the buyer and reports `zoho=invited`; accept the invite from that
-inbox → run **Actions → Zoho enrolment reconcile → Run workflow** (or wait for
-the 2-hourly schedule) and expect `enrolled=1`. Leave `ZOHO_AUTO_ENROLL`
-unset/`false` to keep the plain email-link behaviour.
+run records the buyer and reports `zoho=invited` (or `zoho=awaiting_signup` in
+self-signup mode); accept the invite / sign up from that inbox → run **Actions →
+Zoho enrolment reconcile → Run workflow** (or wait for the 15-minute schedule) and
+expect `enrolled=1`. Leave `ZOHO_AUTO_ENROLL` unset/`false` to keep the plain
+email-link behaviour.
