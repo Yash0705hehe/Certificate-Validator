@@ -59,6 +59,15 @@ def process_subject(
     cfg = cfg or ZohoConfig.from_env()
     target = cfg.target_for_course_name(course_name)
     if not target:
+        # Surface this — a silent "IGNORED" on a green run is how completions get
+        # missed. A GitHub Actions ::warning:: shows it on the run summary.
+        known = ", ".join(sorted(cfg.course_map.keys())) or "(none configured)"
+        print(
+            f"::warning::Zoho completion course not mapped: {course_name!r}. "
+            f"Add it to ZOHO_COURSE_MAP so this learner gets a certificate. "
+            f"Currently mapped: {known}.",
+            flush=True,
+        )
         return f"IGNORED (course not mapped): {course_name!r}"
 
     client = client or ZohoClient(cfg)
