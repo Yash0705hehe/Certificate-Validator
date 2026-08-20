@@ -200,3 +200,39 @@ def test_from_env_reads_self_signup(monkeypatch):
     assert ZohoConfig.from_env().self_signup is False
     monkeypatch.setenv("ZOHO_SELF_SIGNUP", "true")
     assert ZohoConfig.from_env().self_signup is True
+
+
+# --- target_for_course_name (tolerant course matching) -------------------
+
+def test_course_name_exact_match():
+    t = _cfg().target_for_course_name("GHG Accounting Course")
+    assert t is not None and t.course == "GHG"
+
+
+def test_course_name_suffix_is_tolerated():
+    # Zoho appends the level in completion emails; the mapped "GHG Accounting
+    # Course" must still match "GHG Accounting Course- Intermediate".
+    t = _cfg().target_for_course_name("GHG Accounting Course- Intermediate")
+    assert t is not None and t.course == "GHG"
+
+
+def test_course_name_unrelated_is_none():
+    assert _cfg().target_for_course_name("Nature Restoration Course") is None
+
+
+def test_course_name_prefers_most_specific_when_multiple_match():
+    cfg = ZohoConfig(
+        accounts_domain="accounts.zoho.in",
+        api_domain="learn.zoho.in",
+        client_id="c",
+        client_secret="d",
+        refresh_token="e",
+        portal="aa-impact",
+        course_map={
+            "ghg accounting course": CourseTarget("111", "GHG"),
+            "ghg accounting course advanced": CourseTarget("222", "GHG_ADV"),
+        },
+    )
+    # Matches both mapped names; the longer (more specific) one wins.
+    t = cfg.target_for_course_name("GHG Accounting Course Advanced Masterclass")
+    assert t is not None and t.course == "GHG_ADV"

@@ -133,7 +133,35 @@ class ZohoConfig:
         )
 
     def target_for_course_name(self, course_name: str) -> CourseTarget | None:
-        return self.course_map.get(normalize(course_name))
+        """Map a Zoho course name (from a completion email) to its CourseTarget.
+
+        Tries an exact (normalized) match first. Zoho often appends a level to
+        the name in the completion email — e.g. the mapped ``"GHG Accounting
+        Course"`` arrives as ``"GHG Accounting Course- Intermediate"`` — so if
+        the exact lookup misses, fall back to an *unambiguous* partial match
+        (one is a prefix of / contained in the other). Ambiguous matches return
+        None rather than guess, so the caller can flag it.
+        """
+        key = normalize(course_name)
+        if not key:
+            return None
+        exact = self.course_map.get(key)
+        if exact:
+            return exact
+        matches = [
+            (mk, t)
+            for mk, t in self.course_map.items()
+            if mk and (key.startswith(mk) or mk.startswith(key) or mk in key)
+        ]
+        if not matches:
+            return None
+        # Unambiguous if every partial match points at the same course.
+        if len({(t.zoho_course_id, t.course) for _, t in matches}) == 1:
+            return matches[0][1]
+        # Otherwise prefer the single most specific (longest) mapped name.
+        longest = max(len(mk) for mk, _ in matches)
+        top = [t for mk, t in matches if len(mk) == longest]
+        return top[0] if len(top) == 1 else None
 
     def zoho_course_id_for_key(self, course_key: str) -> str | None:
         """Reverse lookup: our course key (GHG / ...) -> Zoho course id."""
